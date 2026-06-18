@@ -19,32 +19,34 @@ struct HexEditorView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                VSplitView {
-                    HSplitView {
+                HSplitView {
+                    VSplitView {
                         hexGrid
-                            .frame(minWidth: 400)
+                            .frame(minWidth: 400, minHeight: 200)
                             .layoutPriority(1)
 
-                        InspectorPanelView(
-                            selection: viewModel.selection,
-                            bytes: inspectorBytes,
-                            selectedOffset: viewModel.selectedOffset,
-                            highlights: viewModel.highlights,
-                            onAddHighlight: { color in
-                                viewModel.addHighlight(color: color)
-                            },
-                            onRemoveHighlight: { id in
-                                viewModel.removeHighlight(id: id)
-                            },
-                            onNavigateToHighlight: { highlight in
-                                viewModel.navigateToHighlight(highlight)
-                            }
-                        )
-                        .layoutPriority(0)
+                        TerminalPanelView(viewModel: viewModel)
+                            .frame(minHeight: 72, idealHeight: 92, maxHeight: 320)
+                            .layoutPriority(0)
                     }
+                    .layoutPriority(1)
 
-                    TerminalPanelView(viewModel: viewModel)
-                        .layoutPriority(0)
+                    InspectorPanelView(
+                        selection: viewModel.selection,
+                        bytes: inspectorBytes,
+                        selectedOffset: viewModel.selectedOffset,
+                        highlights: viewModel.highlights,
+                        onAddHighlight: { color in
+                            viewModel.addHighlight(color: color)
+                        },
+                        onRemoveHighlight: { id in
+                            viewModel.removeHighlight(id: id)
+                        },
+                        onNavigateToHighlight: { highlight in
+                            viewModel.navigateToHighlight(highlight)
+                        }
+                    )
+                    .layoutPriority(0)
                 }
             }
 
@@ -66,6 +68,16 @@ struct HexEditorView: View {
         .sheet(isPresented: $viewModel.showCRCSheet) {
             CRCCalculatorView(inputBytes: viewModel.crcInputBytes) {
                 viewModel.showCRCSheet = false
+            }
+        }
+        .sheet(isPresented: $viewModel.showHistogramSheet) {
+            HistogramView(
+                fileName: viewModel.histogramFileName,
+                title: viewModel.histogramTitle,
+                byteCount: viewModel.histogramByteCount,
+                counts: viewModel.histogramCounts
+            ) {
+                viewModel.showHistogramSheet = false
             }
         }
         .confirmationDialog(

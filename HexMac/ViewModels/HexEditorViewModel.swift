@@ -18,7 +18,12 @@ final class HexEditorViewModel {
     var scrollTargetOffset: Int?
     var showCRCSheet = false
     var showFillDialog = false
+    var showHistogramSheet = false
     var crcInputBytes: [UInt8] = []
+    var histogramCounts: [Int] = Array(repeating: 0, count: 256)
+    var histogramTitle = ""
+    var histogramFileName = ""
+    var histogramByteCount = 0
     var terminalHistory: [TerminalLine] = []
     var editingOffset: Int?
     var editingHexText = ""
@@ -87,7 +92,12 @@ final class HexEditorViewModel {
         scrollTargetOffset = nil
         showCRCSheet = false
         showFillDialog = false
+        showHistogramSheet = false
         crcInputBytes = []
+        histogramCounts = Array(repeating: 0, count: 256)
+        histogramTitle = ""
+        histogramFileName = ""
+        histogramByteCount = 0
         terminalHistory = []
         editingOffset = nil
         editingHexText = ""
@@ -184,6 +194,33 @@ final class HexEditorViewModel {
         guard let selection else { return }
         crcInputBytes = bytes(in: selection.start..<(selection.end + 1))
         showCRCSheet = true
+    }
+
+    func openHistogramForAll() {
+        guard fileSize > 0 else { return }
+        let data = bytes(in: 0..<fileSize)
+        histogramCounts = HistogramBuilder.build(from: data)
+        histogramByteCount = data.count
+        histogramFileName = document?.displayName ?? String(localized: "Untitled")
+        histogramTitle = String(localized: "Entire file")
+        showHistogramSheet = true
+    }
+
+    func openHistogramForSelection() {
+        guard let selection else { return }
+        let data = bytes(in: selection.start..<(selection.end + 1))
+        guard !data.isEmpty else { return }
+        histogramCounts = HistogramBuilder.build(from: data)
+        histogramByteCount = data.count
+        histogramFileName = document?.displayName ?? String(localized: "Untitled")
+        histogramTitle = String(
+            localized: "Selection: 0x\(HexFormatter.offsetString(for: selection.start)) – 0x\(HexFormatter.offsetString(for: selection.end))"
+        )
+        showHistogramSheet = true
+    }
+
+    var hasSelection: Bool {
+        selection != nil
     }
 
     func executeTerminalCommand(_ input: String) {

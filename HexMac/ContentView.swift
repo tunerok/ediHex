@@ -21,19 +21,6 @@ struct ContentView: View {
         .frame(minWidth: 720, minHeight: 480)
         .navigationTitle(viewModel.windowTitle)
         .toolbarRole(.editor)
-        .toolbar {
-            if viewModel.isDocumentOpen {
-                ToolbarItem(placement: .automatic) {
-                    Picker(String(localized: "Encoding"), selection: textEncodingBinding) {
-                        ForEach(TextEncodingMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 120)
-                }
-            }
-        }
         .onAppear {
             syncEncodingFromStorage()
         }
@@ -55,13 +42,6 @@ struct ContentView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-    }
-
-    private var textEncodingBinding: Binding<TextEncodingMode> {
-        Binding(
-            get: { viewModel.textEncoding },
-            set: { viewModel.textEncoding = $0 }
-        )
     }
 
     private func syncEncodingFromStorage() {

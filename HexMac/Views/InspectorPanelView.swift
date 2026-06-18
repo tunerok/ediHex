@@ -105,7 +105,7 @@ struct InspectorPanelView: View {
 
             Spacer(minLength: 0)
         }
-        .frame(minWidth: 180, idealWidth: 260, maxWidth: 600)
+        .frame(minWidth: 360, idealWidth: 520, maxWidth: 1200)
         .background(.background.secondary)
     }
 }

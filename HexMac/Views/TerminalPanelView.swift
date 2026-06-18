@@ -13,25 +13,28 @@ struct TerminalPanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(String(localized: "Terminal"))
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
 
             Divider()
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(viewModel.terminalHistory) { line in
                             terminalLineView(line)
                                 .id(line.id)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
                 }
+                .frame(maxHeight: .infinity)
+                .scrollIndicators(.visible)
                 .onChange(of: viewModel.terminalHistory.count) { _, _ in
                     if let last = viewModel.terminalHistory.last {
                         withAnimation {
@@ -45,18 +48,18 @@ struct TerminalPanelView: View {
 
             HStack(spacing: 8) {
                 Text("›")
-                    .font(.body.monospaced())
+                    .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
 
                 TextField(String(localized: "Enter command"), text: $commandInput)
-                    .font(.body.monospaced())
+                    .font(.callout.monospaced())
                     .textFieldStyle(.plain)
                     .onSubmit(submitCommand)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
         }
-        .frame(minHeight: 80, idealHeight: 160)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.background.secondary)
     }
 
@@ -65,16 +68,16 @@ struct TerminalPanelView: View {
         switch line.kind {
         case .input:
             Text("› \(line.text)")
-                .font(.callout.monospaced())
+                .font(.caption.monospaced())
                 .foregroundStyle(.primary)
         case .output:
             Text(line.text)
-                .font(.callout.monospaced())
+                .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
         case .error:
             Text(line.text)
-                .font(.callout.monospaced())
+                .font(.caption.monospaced())
                 .foregroundStyle(.red)
                 .textSelection(.enabled)
         }
@@ -90,5 +93,5 @@ struct TerminalPanelView: View {
 
 #Preview {
     TerminalPanelView(viewModel: HexEditorViewModel())
-        .frame(height: 180)
+        .frame(width: 520, height: 92)
 }
