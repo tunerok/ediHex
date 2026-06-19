@@ -37,7 +37,7 @@ struct StatusBarView: View {
                 }
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: 120)
+            .frame(maxWidth: 160)
         }
         .font(.callout.monospaced())
         .padding(.horizontal, 12)

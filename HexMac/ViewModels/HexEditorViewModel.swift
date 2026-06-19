@@ -19,6 +19,10 @@ final class HexEditorViewModel {
     var showCRCSheet = false
     var showFillDialog = false
     var showHistogramSheet = false
+    var showBinarySheet = false
+    var binarySelectionStart = 0
+    var binarySelectionEnd = 0
+    var binarySelectionByteCount = 0
     var crcInputBytes: [UInt8] = []
     var histogramCounts: [Int] = Array(repeating: 0, count: 256)
     var histogramTitle = ""
@@ -94,6 +98,10 @@ final class HexEditorViewModel {
         showCRCSheet = false
         showFillDialog = false
         showHistogramSheet = false
+        showBinarySheet = false
+        binarySelectionStart = 0
+        binarySelectionEnd = 0
+        binarySelectionByteCount = 0
         crcInputBytes = []
         histogramCounts = Array(repeating: 0, count: 256)
         histogramTitle = ""
@@ -196,6 +204,17 @@ final class HexEditorViewModel {
         guard let selection else { return }
         crcInputBytes = bytes(in: selection.start..<(selection.end + 1))
         showCRCSheet = true
+    }
+
+    func openBinarySheet() {
+        guard let selection else { return }
+        let byteCount = selection.length
+        guard byteCount > 0 else { return }
+
+        binarySelectionStart = selection.start
+        binarySelectionEnd = selection.end
+        binarySelectionByteCount = byteCount
+        showBinarySheet = true
     }
 
     func openHistogramForAll() {

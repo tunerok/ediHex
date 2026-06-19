@@ -23,6 +23,7 @@ struct HexSelectionHandlingView: NSViewRepresentable {
     let onCopySelection: () -> Void
     let onClearSelection: () -> Void
     let onCalculateCRC: () -> Void
+    let onShowBinary: () -> Void
     let highlightColor: (Int) -> HighlightColor?
 
     func makeNSView(context: Context) -> HexSelectionMouseView {
@@ -122,6 +123,14 @@ struct HexSelectionHandlingView: NSViewRepresentable {
                 crcItem.target = self
                 menu.addItem(crcItem)
 
+                let binaryItem = NSMenuItem(
+                    title: String(localized: "Show as Binary…"),
+                    action: #selector(showBinary(_:)),
+                    keyEquivalent: ""
+                )
+                binaryItem.target = self
+                menu.addItem(binaryItem)
+
                 menu.addItem(.separator())
             }
 
@@ -180,6 +189,10 @@ struct HexSelectionHandlingView: NSViewRepresentable {
 
         @objc func calculateCRC(_ sender: NSMenuItem) {
             parent.onCalculateCRC()
+        }
+
+        @objc func showBinary(_ sender: NSMenuItem) {
+            parent.onShowBinary()
         }
     }
 

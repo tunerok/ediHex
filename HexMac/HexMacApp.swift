@@ -92,6 +92,11 @@ struct HexMacApp: App {
             .keyboardShortcut("c", modifiers: .command)
             .disabled(!viewModel.hasSelection)
 
+            Button(String(localized: "Show as Binary…")) {
+                viewModel.openBinarySheet()
+            }
+            .disabled(!viewModel.hasSelection)
+
             Button(String(localized: "Clear…")) {
                 viewModel.requestFillSelection()
             }
@@ -114,6 +119,20 @@ struct HexMacApp: App {
                         }
                     }
                     .disabled(!viewModel.isDocumentOpen)
+                }
+            }
+
+            Menu(String(localized: "Text Encoding")) {
+                ForEach(TextEncodingMode.allCases) { mode in
+                    Button {
+                        viewModel.textEncoding = mode
+                    } label: {
+                        if viewModel.textEncoding == mode {
+                            Text("✓ \(mode.label)")
+                        } else {
+                            Text(mode.label)
+                        }
+                    }
                 }
             }
         }

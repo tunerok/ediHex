@@ -64,6 +64,18 @@ struct HexEditorView: View {
                 )
             )
         }
+        .sheet(isPresented: $viewModel.showBinarySheet) {
+            BinarySelectionView(
+                selectionStart: viewModel.binarySelectionStart,
+                selectionEnd: viewModel.binarySelectionEnd,
+                byteCount: viewModel.binarySelectionByteCount,
+                bytesProvider: { range in
+                    viewModel.bytes(in: range)
+                }
+            ) {
+                viewModel.showBinarySheet = false
+            }
+        }
         .sheet(isPresented: $viewModel.showCRCSheet) {
             CRCCalculatorView(inputBytes: viewModel.crcInputBytes) {
                 viewModel.showCRCSheet = false
@@ -139,6 +151,9 @@ struct HexEditorView: View {
             },
             onCalculateCRC: {
                 viewModel.openCRCSheet()
+            },
+            onShowBinary: {
+                viewModel.openBinarySheet()
             },
             onScrollTargetHandled: {
                 viewModel.clearScrollTarget()

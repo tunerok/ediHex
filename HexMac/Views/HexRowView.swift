@@ -83,24 +83,7 @@ struct HexRowView: View {
     }
 
     private var textCharacters: [Character] {
-        switch textEncoding {
-        case .ascii:
-            bytes.map { HexFormatter.asciiCharacter(for: $0) }
-        case .utf8:
-            utf8CharactersAligned(to: bytes)
-        }
-    }
-
-    private func utf8CharactersAligned(to bytes: [UInt8]) -> [Character] {
-        var result = Array(repeating: Character(" "), count: bytes.count)
-        var byteIndex = 0
-        let string = HexFormatter.utf8String(for: bytes)
-        for character in string {
-            guard byteIndex < bytes.count else { break }
-            result[byteIndex] = character
-            byteIndex += character.utf8.count
-        }
-        return result
+        HexFormatter.alignedTextCharacters(for: bytes, encoding: textEncoding)
     }
 }
 
