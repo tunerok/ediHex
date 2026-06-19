@@ -3,6 +3,7 @@
 //  HexMac
 //
 
+import CryptoKit
 import Foundation
 
 struct TerminalLine: Identifiable, Equatable {
@@ -24,6 +25,8 @@ enum TerminalCommandResult {
 }
 
 enum TerminalCommandParser {
+    private static let maxDumpBytes = BinarySelectionFormatter.maxDisplayBytes
+
     static func execute(
         _ input: String,
         fileSize: Int,
@@ -34,49 +37,140 @@ enum TerminalCommandParser {
             return .error(String(localized: "Empty command"))
         }
 
-        let parts = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard let command = parts.first?.lowercased() else {
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let command = tokens.first?.lowercased() else {
             return .error(String(localized: "Invalid command"))
         }
 
         switch command {
         case "help":
-            return .output(helpText)
+            return runHelp(tokens: tokens)
         case "goto":
-            return runGoto(parts: parts, fileSize: fileSize)
+            return runGoto(tokens: tokens, fileSize: fileSize)
         case "sum":
-            return runAggregate(parts: parts, fileSize: fileSize, bytesProvider: bytesProvider, operation: .sum)
+            return runAggregate(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider, operation: .sum)
         case "xor":
-            return runAggregate(parts: parts, fileSize: fileSize, bytesProvider: bytesProvider, operation: .xor)
+            return runAggregate(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider, operation: .xor)
         case "avg":
-            return runAggregate(parts: parts, fileSize: fileSize, bytesProvider: bytesProvider, operation: .average)
+            return runAggregate(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider, operation: .average)
         case "len":
-            return runLength(parts: parts, fileSize: fileSize)
+            return runLength(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
         case "crc":
-            return runCRC(parts: parts, fileSize: fileSize, bytesProvider: bytesProvider)
+            return runCRC(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
+        case "hex":
+            return runHexDump(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
+        case "bin":
+            return runBinDump(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
+        case "ascii":
+            return runAsciiDump(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
+        case "min":
+            return runMinMax(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider, operation: .min)
+        case "max":
+            return runMinMax(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider, operation: .max)
+        case "count":
+            return runCount(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
+        case "read":
+            return runRead(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
+        case "find":
+            return runFind(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
+        case "cmp":
+            return runCompare(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
+        case "hash":
+            return runHash(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider)
         default:
             return .error(String(localized: "Unknown command. Type help for available commands."))
         }
     }
 
-    private static let helpText = """
-    help
-    goto <offset>
-    sum <start> <end>
-    xor <start> <end>
-    avg <start> <end>
-    len <start> <end>
-    crc <start> <end>
-    """
+    // MARK: - Parsing
 
-    private enum AggregateOperation {
-        case sum
-        case xor
-        case average
+    private struct ParsedCommand {
+        let samplingFlags: TerminalSamplingFlags
+        let crcOptions: TerminalCRCOptions?
+        let positionalTokens: [String]
     }
 
-    private static func runGoto(parts: [String], fileSize: Int) -> TerminalCommandResult {
-        guard parts.count == 2, let offset = parseOffset(parts[1]) else {
+    private static func parseCommandTokens(
+        _ tokens: [String],
+        parseCRCFlags: Bool
+    ) -> Result<ParsedCommand, TerminalParseError> {
+        let split = TerminalCommandTokenizer.split(commandTokens: tokens)
+
+        if let validationError = TerminalCommandTokenizer.validate(
+            flagTokens: split.flagTokens,
+            allowCRCFlags: parseCRCFlags,
+            allowSamplingFlags: true
+        ) {
+            return .failure(validationError)
+        }
+
+        var crcOptions: TerminalCRCOptions?
+
+        if parseCRCFlags {
+            switch TerminalCRCOptions.parse(flagTokens: split.flagTokens) {
+            case .success(let options):
+                crcOptions = options
+            case .failure(let error):
+                return .failure(error)
+            }
+        }
+
+        switch TerminalSamplingFlags.parse(flagTokens: split.flagTokens) {
+        case .success(let samplingFlags):
+            if let validationError = samplingFlags.validate() {
+                return .failure(validationError)
+            }
+
+            return .success(
+                ParsedCommand(
+                    samplingFlags: samplingFlags,
+                    crcOptions: crcOptions,
+                    positionalTokens: split.positionalTokens
+                )
+            )
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
+    private static func collectBytes(
+        positionalTokens: [String],
+        fileSize: Int,
+        flags: TerminalSamplingFlags,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> Result<[UInt8], TerminalParseError> {
+        guard let spec = TerminalRangeSpec.parse(positionalTokens: positionalTokens, fileSize: fileSize) else {
+            return .failure(TerminalParseError(message: String(localized: "Invalid range. Type help ranges for syntax.")))
+        }
+
+        let bytes = TerminalByteSampler.collect(from: spec, flags: flags, bytesProvider: bytesProvider)
+        guard !bytes.isEmpty else {
+            return .failure(TerminalParseError(message: String(localized: "Empty range")))
+        }
+        return .success(bytes)
+    }
+
+    // MARK: - Commands
+
+    private static func runHelp(tokens: [String]) -> TerminalCommandResult {
+        if tokens.count == 1 {
+            return .output(helpOverviewText)
+        }
+
+        switch tokens[1].lowercased() {
+        case "crc":
+            return .output(helpCRCText)
+        case "ranges":
+            return .output(helpRangesText)
+        case "filters":
+            return .output(helpFiltersText)
+        default:
+            return .output(helpOverviewText)
+        }
+    }
+
+    private static func runGoto(tokens: [String], fileSize: Int) -> TerminalCommandResult {
+        guard tokens.count == 2, let offset = TerminalOffsetParser.parse(tokens[1]) else {
             return .error(String(localized: "Usage: goto <offset>"))
         }
         guard offset >= 0, offset < fileSize else {
@@ -85,78 +179,630 @@ enum TerminalCommandParser {
         return .navigate(offset)
     }
 
-    private static func runLength(parts: [String], fileSize: Int) -> TerminalCommandResult {
-        guard let range = parseRange(parts: parts, fileSize: fileSize) else {
-            return .error(String(localized: "Usage: len <start> <end>"))
+    private static func runLength(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        switch parseCommandTokens(tokens, parseCRCFlags: false) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let parsed):
+            switch collectBytes(
+                positionalTokens: parsed.positionalTokens,
+                fileSize: fileSize,
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            ) {
+            case .failure(let error):
+                return .error(error.message)
+            case .success(let bytes):
+                return .output("\(bytes.count) \(String(localized: "bytes"))")
+            }
         }
-        let length = range.upperBound - range.lowerBound
-        return .output("\(length) \(String(localized: "bytes"))")
+    }
+
+    private enum AggregateOperation {
+        case sum
+        case xor
+        case average
     }
 
     private static func runAggregate(
-        parts: [String],
+        tokens: [String],
         fileSize: Int,
         bytesProvider: (Range<Int>) -> [UInt8],
         operation: AggregateOperation
     ) -> TerminalCommandResult {
-        guard let range = parseRange(parts: parts, fileSize: fileSize) else {
-            return .error(String(localized: "Usage: \(parts.first ?? "command") <start> <end>"))
-        }
-
-        let bytes = bytesProvider(range)
-        guard !bytes.isEmpty else {
-            return .error(String(localized: "Empty range"))
-        }
-
-        switch operation {
-        case .sum:
-            let total = bytes.reduce(0) { $0 + UInt64($1) }
-            return .output("0x\(String(total, radix: 16, uppercase: true)) (\(total))")
-        case .xor:
-            let value = bytes.reduce(0) { $0 ^ UInt64($1) }
-            return .output("0x\(String(format: "%02X", value))")
-        case .average:
-            let total = bytes.reduce(0) { $0 + UInt64($1) }
-            let average = Double(total) / Double(bytes.count)
-            return .output(String(format: "%.2f", average))
+        switch parseCommandTokens(tokens, parseCRCFlags: false) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let parsed):
+            switch collectBytes(
+                positionalTokens: parsed.positionalTokens,
+                fileSize: fileSize,
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            ) {
+            case .failure(let error):
+                return .error(error.message)
+            case .success(let bytes):
+                switch operation {
+                case .sum:
+                    let total = bytes.reduce(0) { $0 + UInt64($1) }
+                    return .output("0x\(String(total, radix: 16, uppercase: true)) (\(total))")
+                case .xor:
+                    let value = bytes.reduce(0) { $0 ^ UInt64($1) }
+                    return .output("0x\(String(format: "%02X", value))")
+                case .average:
+                    let total = bytes.reduce(0) { $0 + UInt64($1) }
+                    let average = Double(total) / Double(bytes.count)
+                    return .output(String(format: "%.2f", average))
+                }
+            }
         }
     }
 
     private static func runCRC(
-        parts: [String],
+        tokens: [String],
         fileSize: Int,
         bytesProvider: (Range<Int>) -> [UInt8]
     ) -> TerminalCommandResult {
-        guard let range = parseRange(parts: parts, fileSize: fileSize) else {
-            return .error(String(localized: "Usage: crc <start> <end>"))
+        switch parseCommandTokens(tokens, parseCRCFlags: true) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let parsed):
+            let crcOptions = parsed.crcOptions ?? .default
+            switch collectBytes(
+                positionalTokens: parsed.positionalTokens,
+                fileSize: fileSize,
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            ) {
+            case .failure(let error):
+                return .error(error.message)
+            case .success(var bytes):
+                if crcOptions.reverseByteOrder {
+                    bytes.reverse()
+                }
+                let value = CRCService.calculate(data: bytes, configuration: crcOptions.configuration)
+                let formatted = CRCService.formattedResult(value, configuration: crcOptions.configuration)
+                return .output("\(crcOptions.displayLabel): \(formatted)")
+            }
         }
-
-        let bytes = bytesProvider(range)
-        let configuration = CRCPreset.crc32IsoHdlc.configuration
-        let value = CRCService.calculate(data: bytes, configuration: configuration)
-        let formatted = CRCService.formattedResult(value, configuration: configuration)
-        return .output("\(CRCPreset.crc32IsoHdlc.label): \(formatted)")
     }
 
-    private static func parseRange(parts: [String], fileSize: Int) -> Range<Int>? {
-        guard parts.count == 3,
-              let start = parseOffset(parts[1]),
-              let end = parseOffset(parts[2]) else {
-            return nil
+    private static func runHexDump(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        dumpResult(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider) { bytes in
+            bytes.map { HexFormatter.hexPair(for: $0) }.joined()
         }
-
-        let lower = min(start, end)
-        let upper = max(start, end) + 1
-        guard lower >= 0, upper <= fileSize, lower < upper else { return nil }
-        return lower..<upper
     }
 
-    private static func parseOffset(_ text: String) -> Int? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.lowercased().hasPrefix("0x") {
-            let hex = String(trimmed.dropFirst(2))
-            return Int(hex, radix: 16)
+    private static func runBinDump(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        dumpResult(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider) { bytes in
+            bytes.map { HexFormatter.binaryString(for: $0) }.joined()
         }
-        return Int(trimmed)
     }
+
+    private static func runAsciiDump(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        dumpResult(tokens: tokens, fileSize: fileSize, bytesProvider: bytesProvider) { bytes in
+            HexFormatter.asciiString(for: bytes)
+        }
+    }
+
+    private static func dumpResult(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8],
+        format: ([UInt8]) -> String
+    ) -> TerminalCommandResult {
+        switch parseCommandTokens(tokens, parseCRCFlags: false) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let parsed):
+            switch collectBytes(
+                positionalTokens: parsed.positionalTokens,
+                fileSize: fileSize,
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            ) {
+            case .failure(let error):
+                return .error(error.message)
+            case .success(let bytes):
+                guard bytes.count <= maxDumpBytes else {
+                    return .error(
+                        String(
+                            localized: "Output exceeds \(maxDumpBytes) bytes. Narrow the range or use filters."
+                        )
+                    )
+                }
+                return .output(format(bytes))
+            }
+        }
+    }
+
+    private enum MinMaxOperation {
+        case min
+        case max
+    }
+
+    private static func runMinMax(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8],
+        operation: MinMaxOperation
+    ) -> TerminalCommandResult {
+        switch parseCommandTokens(tokens, parseCRCFlags: false) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let parsed):
+            switch collectBytes(
+                positionalTokens: parsed.positionalTokens,
+                fileSize: fileSize,
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            ) {
+            case .failure(let error):
+                return .error(error.message)
+            case .success(let bytes):
+                let value: UInt8
+                switch operation {
+                case .min:
+                    value = bytes.min() ?? 0
+                case .max:
+                    value = bytes.max() ?? 0
+                }
+                return .output("0x\(HexFormatter.hexPair(for: value)) (\(value))")
+            }
+        }
+    }
+
+    private static func runCount(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        switch parseCommandTokens(tokens, parseCRCFlags: false) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let parsed):
+            guard let targetByte = parsed.positionalTokens.first.flatMap({ TerminalOffsetParser.parseByte($0) }) else {
+                return .error(String(localized: "Usage: count <byte> <start> <end>[, ...]"))
+            }
+
+            let rangeTokens = Array(parsed.positionalTokens.dropFirst())
+            switch collectBytes(
+                positionalTokens: rangeTokens,
+                fileSize: fileSize,
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            ) {
+            case .failure(let error):
+                return .error(error.message)
+            case .success(let bytes):
+                let count = bytes.reduce(0) { $0 + ($1 == targetByte ? 1 : 0) }
+                return .output("\(count)")
+            }
+        }
+    }
+
+    private enum ReadType: String {
+        case u8, u16, u32, u64, i16, i32
+
+        var byteCount: Int {
+            switch self {
+            case .u8: 1
+            case .u16, .i16: 2
+            case .u32, .i32: 4
+            case .u64: 8
+            }
+        }
+
+        var isSigned: Bool {
+            switch self {
+            case .i16, .i32: true
+            default: false
+            }
+        }
+    }
+
+    private static func runRead(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        let split = TerminalCommandTokenizer.split(commandTokens: tokens)
+
+        if let validationError = TerminalCommandTokenizer.validate(
+            flagTokens: split.flagTokens,
+            allowCRCFlags: false,
+            allowSamplingFlags: false,
+            allowReadFlags: true
+        ) {
+            return .error(validationError.message)
+        }
+
+        var littleEndian = true
+        for flag in split.flagTokens.map({ $0.lowercased() }) {
+            switch flag {
+            case "--le":
+                littleEndian = true
+            case "--be":
+                littleEndian = false
+            default:
+                break
+            }
+        }
+
+        guard split.positionalTokens.count == 2,
+              let type = ReadType(rawValue: split.positionalTokens[0].lowercased()),
+              let offset = TerminalOffsetParser.parse(split.positionalTokens[1]) else {
+            return .error(String(localized: "Usage: read <u8|u16|u32|u64|i16|i32> <offset> [--le|--be]"))
+        }
+
+        let end = offset + type.byteCount
+        guard offset >= 0, end <= fileSize else {
+            return .error(String(localized: "Offset out of bounds"))
+        }
+
+        let bytes = bytesProvider(offset..<end)
+        guard bytes.count == type.byteCount else {
+            return .error(String(localized: "Unable to read bytes at offset"))
+        }
+
+        let unsigned = unsignedValue(from: bytes, littleEndian: littleEndian)
+        if type.isSigned {
+            let signed = signExtend(unsigned, byteCount: type.byteCount)
+            return .output("0x\(String(unsigned, radix: 16, uppercase: true)) (\(signed))")
+        }
+        return .output("0x\(String(unsigned, radix: 16, uppercase: true)) (\(unsigned))")
+    }
+
+    private static func runFind(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        let split = TerminalCommandTokenizer.split(commandTokens: tokens)
+
+        if let validationError = TerminalCommandTokenizer.validate(
+            flagTokens: split.flagTokens,
+            allowCRCFlags: false,
+            allowSamplingFlags: true
+        ) {
+            return .error(validationError.message)
+        }
+
+        switch TerminalSamplingFlags.parse(flagTokens: split.flagTokens) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let flags):
+            if let validationError = flags.validate() {
+                return .error(validationError.message)
+            }
+
+            guard let patternResult = parseBytePattern(split.positionalTokens) else {
+                return .error(String(localized: "Usage: find <hex-pattern> [start end][, ...]"))
+            }
+
+            let segments: [Range<Int>]
+            if patternResult.rangeTokens.isEmpty {
+                segments = [0..<fileSize]
+            } else if let spec = TerminalRangeSpec.parse(positionalTokens: patternResult.rangeTokens, fileSize: fileSize) {
+                segments = spec.segments
+            } else {
+                return .error(String(localized: "Invalid search range"))
+            }
+
+            for segment in segments {
+                if let offset = findPattern(patternResult.pattern, in: segment, bytesProvider: bytesProvider) {
+                    return .output("0x\(HexFormatter.offsetString(for: offset)) (\(offset))")
+                }
+            }
+            return .output(String(localized: "Not found"))
+        }
+    }
+
+    private static func runCompare(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        switch parseCommandTokens(tokens, parseCRCFlags: false) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let parsed):
+            guard let spec = TerminalRangeSpec.parse(positionalTokens: parsed.positionalTokens, fileSize: fileSize) else {
+                return .error(String(localized: "Usage: cmp <start> <end>, <start> <end>"))
+            }
+            guard spec.segments.count == 2 else {
+                return .error(String(localized: "cmp requires exactly two ranges separated by comma"))
+            }
+
+            let left = TerminalByteSampler.collect(
+                from: TerminalRangeSpec(segments: [spec.segments[0]]),
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            )
+            let right = TerminalByteSampler.collect(
+                from: TerminalRangeSpec(segments: [spec.segments[1]]),
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            )
+
+            guard !left.isEmpty, !right.isEmpty else {
+                return .error(String(localized: "Empty range"))
+            }
+            guard left.count == right.count else {
+                return .error(String(localized: "Ranges have different lengths: \(left.count) vs \(right.count)"))
+            }
+
+            for index in left.indices where left[index] != right[index] {
+                return .output(
+                    "Diff at index \(index): 0x\(HexFormatter.hexPair(for: left[index])) vs 0x\(HexFormatter.hexPair(for: right[index]))"
+                )
+            }
+            return .output(String(localized: "Equal"))
+        }
+    }
+
+    private enum HashAlgorithm: String {
+        case md5, sha1, sha256
+    }
+
+    private static func runHash(
+        tokens: [String],
+        fileSize: Int,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> TerminalCommandResult {
+        switch parseCommandTokens(tokens, parseCRCFlags: false) {
+        case .failure(let error):
+            return .error(error.message)
+        case .success(let parsed):
+            guard let algorithmName = parsed.positionalTokens.first?.lowercased(),
+                  let algorithm = HashAlgorithm(rawValue: algorithmName) else {
+                return .error(String(localized: "Usage: hash <md5|sha1|sha256> <start> <end>[, ...]"))
+            }
+
+            let rangeTokens = Array(parsed.positionalTokens.dropFirst())
+            switch collectBytes(
+                positionalTokens: rangeTokens,
+                fileSize: fileSize,
+                flags: parsed.samplingFlags,
+                bytesProvider: bytesProvider
+            ) {
+            case .failure(let error):
+                return .error(error.message)
+            case .success(let bytes):
+                let digest: String
+                switch algorithm {
+                case .md5:
+                    digest = Insecure.MD5.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                case .sha1:
+                    digest = Insecure.SHA1.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                case .sha256:
+                    digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                }
+                return .output(digest)
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private struct BytePatternParseResult {
+        let pattern: [UInt8]
+        let rangeTokens: [String]
+    }
+
+    private static func parseBytePattern(_ tokens: [String]) -> BytePatternParseResult? {
+        guard !tokens.isEmpty else { return nil }
+
+        var pattern: [UInt8] = []
+        var rangeStartIndex: Int?
+
+        for (index, token) in tokens.enumerated() {
+            if let byte = TerminalOffsetParser.parseByte(token) {
+                pattern.append(byte)
+                continue
+            }
+
+            let hexOnly = token.uppercased().filter(\.isHexDigit)
+            if !hexOnly.isEmpty, hexOnly.count.isMultiple(of: 2), hexOnly.count >= 2 {
+                var position = hexOnly.startIndex
+                while position < hexOnly.endIndex {
+                    let next = hexOnly.index(position, offsetBy: 2)
+                    if let value = UInt8(hexOnly[position..<next], radix: 16) {
+                        pattern.append(value)
+                    }
+                    position = next
+                }
+                continue
+            }
+
+            if pattern.isEmpty {
+                return nil
+            }
+            rangeStartIndex = index
+            break
+        }
+
+        guard !pattern.isEmpty else { return nil }
+        let rangeTokens = rangeStartIndex.map { Array(tokens[$0...]) } ?? []
+        return BytePatternParseResult(pattern: pattern, rangeTokens: rangeTokens)
+    }
+
+    private static func findPattern(
+        _ pattern: [UInt8],
+        in range: Range<Int>,
+        bytesProvider: (Range<Int>) -> [UInt8]
+    ) -> Int? {
+        guard !pattern.isEmpty, range.lowerBound < range.upperBound else { return nil }
+
+        let haystack = bytesProvider(range)
+        guard haystack.count >= pattern.count else { return nil }
+
+        let lastStart = haystack.count - pattern.count
+        for start in 0...lastStart {
+            if haystack[start..<(start + pattern.count)].elementsEqual(pattern) {
+                return range.lowerBound + start
+            }
+        }
+        return nil
+    }
+
+    private static func unsignedValue(from bytes: [UInt8], littleEndian: Bool) -> UInt64 {
+        var value: UInt64 = 0
+        if littleEndian {
+            for (index, byte) in bytes.enumerated() {
+                value |= UInt64(byte) << (8 * index)
+            }
+        } else {
+            for byte in bytes {
+                value = (value << 8) | UInt64(byte)
+            }
+        }
+        return value
+    }
+
+    private static func signExtend(_ value: UInt64, byteCount: Int) -> Int64 {
+        let bitWidth = byteCount * 8
+        let signBit = UInt64(1) << (bitWidth - 1)
+        if value & signBit != 0 {
+            let mask = (UInt64(1) << bitWidth) - 1
+            return Int64(bitPattern: (~mask) | (value & mask))
+        }
+        return Int64(value)
+    }
+
+    // MARK: - Help
+
+    private static let helpOverviewText = """
+    help [crc|ranges|filters]
+    goto <offset>
+
+    Navigation:
+      goto <offset>                 jump to byte offset in the file
+
+    Byte math (ranges + optional filters, see help filters):
+      sum <ranges>                  sum of bytes → 0xHEX (decimal)
+      xor <ranges>                  XOR of all bytes → 0xNN
+      avg <ranges>                  average byte value
+      len <ranges>                  count bytes after filters
+
+    CRC (see help crc):
+      crc <ranges> [--preset name] [--reverse] ...
+
+    Dump (no separators, max 64 KB output):
+      hex <ranges>                  raw hex: DEADBEEF
+      bin <ranges>                  raw binary: 11010010...
+      ascii <ranges>                printable text, others as '.'
+
+    Analysis:
+      min|max <ranges>              smallest / largest byte value
+      count <byte> <ranges>         how many times <byte> appears
+      read <type> <offset>          read u8|u16|u32|u64|i16|i32 at offset
+                                    [--le] little-endian (default)
+                                    [--be] big-endian
+      find <pattern> [ranges]       search bytes; pattern: DEADBEEF or 0xDE 0xAD
+      cmp <r1>, <r2>                compare two equal-length ranges
+      hash <md5|sha1|sha256> <ranges>
+
+    Topics: help ranges | help filters | help crc
+    """
+
+    private static let helpRangesText = """
+    Range syntax: <start> <end>[, <start> <end>...]
+
+    Offsets: decimal (100) or hex (0x64). End is inclusive.
+    Order in a pair does not matter. Segments are joined in order.
+
+    Examples:
+      sum 0 255                     bytes 0..255 (256 bytes)
+      sum 0 255, 512 767            two segments, concatenated
+      hex 0x0 0xFF, 512 0x3FF       mixed decimal and hex
+
+    Optional filters (--mask, --eq, --every) apply after bytes are
+    collected. See: help filters
+    """
+
+    private static let helpFiltersText = """
+    Filters select which bytes from a range are processed.
+    Applied in this order:
+
+      1. Collect bytes from all range segments (in order)
+      2. --mask / --eq  keep matching bytes
+      3. --every N      keep every Nth byte from step 2
+
+    --mask M
+      Keep bytes where any masked bit is set: (byte & M) != 0
+      M is a byte value: decimal or hex (0xF0).
+      Example: --mask 0x80  keeps bytes with bit 7 set
+
+    --eq V  (requires --mask)
+      Keep bytes where (byte & M) == V
+      Useful to match an exact bit pattern in the masked bits.
+      Example: --mask 0xF0 --eq 0xA0  keeps 0xA?, not 0xB?
+
+    --every N  (N >= 1)
+      From the current byte list, keep indices 0, N, 2N, 3N, ...
+      N=1 means no thinning. N=2 keeps 1st, 3rd, 5th... byte.
+      Applied after --mask.
+
+    Examples:
+      sum 0 255 --every 4
+        sum bytes 0, 4, 8, 12, ... from the range
+
+      sum 0 0xFFFF --mask 0x80
+        sum only bytes with high bit set
+
+      crc --preset modbus 0 0xFF --every 2
+        CRC over every 2nd byte of 0..255
+
+      len 0 1000 --mask 0x0F --eq 0x05
+        count bytes where low nibble equals 5
+
+    Flags can appear before or after ranges:
+      sum 0 255 --every 4
+      sum --every 4 0 255
+    """
+
+    private static let helpCRCText = """
+    crc [options] <ranges> [filters]
+
+    Default: CRC-32/ISO-HDLC (Ethernet CRC).
+    Filters (help filters) apply to input bytes before CRC.
+
+    Preset / algorithm:
+      --preset <name>     crc16Modbus, modbus, CRC-16/MODBUS, ...
+      --crc8 | --crc16 | --crc32
+
+    Custom parameters (override preset):
+      --poly <hex>        polynomial
+      --init <hex>        initial value
+      --xorout <hex>      final XOR
+      --refin             reflect input bytes
+      --refout            reflect result
+
+    Other:
+      --reverse           reverse byte order before calculation
+
+    Examples:
+      crc 0 255
+      crc --preset modbus 0 0x1F, 0x100 0x2FF
+      crc --crc16 --poly 0x8005 --init 0xFFFF --refin --refout 0 100
+      crc --preset modbus 0 255 --every 4
+    """
 }

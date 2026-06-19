@@ -6,8 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		ACEEF7162FE4A20000385231 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = ACEEF6F02FE4A1FB00385231 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = ACEEF6F72FE4A1FB00385231;
+			remoteInfo = HexMac;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		ACEEF6F82FE4A1FB00385231 /* HexMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HexMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		ACEEF7102FE4A20000385231 /* HexMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HexMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +27,22 @@
 			path = HexMac;
 			sourceTree = "<group>";
 		};
+		ACEEF7112FE4A20000385231 /* HexMacTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = HexMacTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		ACEEF6F52FE4A1FB00385231 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ACEEF7142FE4A20000385231 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				ACEEF6FA2FE4A1FB00385231 /* HexMac */,
+				ACEEF7112FE4A20000385231 /* HexMacTests */,
 				ACEEF6F92FE4A1FB00385231 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				ACEEF6F82FE4A1FB00385231 /* HexMac.app */,
+				ACEEF7102FE4A20000385231 /* HexMacTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,28 @@
 			productReference = ACEEF6F82FE4A1FB00385231 /* HexMac.app */;
 			productType = "com.apple.product-type.application";
 		};
+		ACEEF7122FE4A20000385231 /* HexMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ACEEF7172FE4A20000385231 /* Build configuration list for PBXNativeTarget "HexMacTests" */;
+			buildPhases = (
+				ACEEF7132FE4A20000385231 /* Sources */,
+				ACEEF7142FE4A20000385231 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				ACEEF7152FE4A20000385231 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				ACEEF7112FE4A20000385231 /* HexMacTests */,
+			);
+			name = HexMacTests;
+			packageProductDependencies = (
+			);
+			productName = HexMacTests;
+			productReference = ACEEF7102FE4A20000385231 /* HexMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +129,10 @@
 				TargetAttributes = {
 					ACEEF6F72FE4A1FB00385231 = {
 						CreatedOnToolsVersion = 26.5;
+					};
+					ACEEF7122FE4A20000385231 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = ACEEF6F72FE4A1FB00385231;
 					};
 				};
 			};
@@ -100,6 +151,7 @@
 			projectRoot = "";
 			targets = (
 				ACEEF6F72FE4A1FB00385231 /* HexMac */,
+				ACEEF7122FE4A20000385231 /* HexMacTests */,
 			);
 		};
 /* End PBXProject section */
@@ -122,7 +174,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		ACEEF7132FE4A20000385231 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		ACEEF7152FE4A20000385231 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = ACEEF6F72FE4A1FB00385231 /* HexMac */;
+			targetProxy = ACEEF7162FE4A20000385231 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		ACEEF7012FE4A1FC00385231 /* Debug */ = {
@@ -303,6 +370,36 @@
 			};
 			name = Release;
 		};
+		ACEEF7182FE4A20000385231 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tunerok.HexMacTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HexMac.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HexMac";
+			};
+			name = Debug;
+		};
+		ACEEF7192FE4A20000385231 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tunerok.HexMacTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HexMac.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HexMac";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -320,6 +417,15 @@
 			buildConfigurations = (
 				ACEEF7042FE4A1FC00385231 /* Debug */,
 				ACEEF7052FE4A1FC00385231 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		ACEEF7172FE4A20000385231 /* Build configuration list for PBXNativeTarget "HexMacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ACEEF7182FE4A20000385231 /* Debug */,
+				ACEEF7192FE4A20000385231 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

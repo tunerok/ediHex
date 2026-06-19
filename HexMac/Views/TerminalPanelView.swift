@@ -3,6 +3,7 @@
 //  HexMac
 //
 
+import AppKit
 import SwiftUI
 
 struct TerminalPanelView: View {
@@ -49,11 +50,58 @@ private struct TerminalPanelEmptyView: View {
     }
 }
 
+private struct TerminalCommandHistoryNavigator {
+    private(set) var browseIndex: Int?
+    private var savedDraft = ""
+
+    mutating func reset() {
+        browseIndex = nil
+        savedDraft = ""
+    }
+
+    mutating func navigate(
+        up: Bool,
+        commands: [String],
+        currentInput: String
+    ) -> String? {
+        guard !commands.isEmpty else { return nil }
+
+        if browseIndex == nil {
+            savedDraft = currentInput
+            browseIndex = commands.count - 1
+            return commands[browseIndex!]
+        }
+
+        if up {
+            guard let index = browseIndex, index > 0 else { return nil }
+            browseIndex = index - 1
+            return commands[browseIndex!]
+        }
+
+        guard let index = browseIndex else { return nil }
+        if index < commands.count - 1 {
+            browseIndex = index + 1
+            return commands[browseIndex!]
+        }
+
+        browseIndex = nil
+        return savedDraft
+    }
+}
+
 private struct TerminalPanelContent: View {
     let history: [TerminalLine]
     @Binding var commandInput: String
     let isEnabled: Bool
     let onSubmit: () -> Void
+
+    @State private var historyNavigator = TerminalCommandHistoryNavigator()
+
+    private var commandHistory: [String] {
+        history.compactMap { line in
+            line.kind == .input ? line.text : nil
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -97,17 +145,36 @@ private struct TerminalPanelContent: View {
                     .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
 
-                TextField(String(localized: "Enter command"), text: $commandInput)
-                    .font(.callout.monospaced())
-                    .textFieldStyle(.plain)
-                    .disabled(!isEnabled)
-                    .onSubmit(onSubmit)
+                TerminalCommandTextField(
+                    text: $commandInput,
+                    isEnabled: isEnabled,
+                    placeholder: String(localized: "Enter command"),
+                    onSubmit: submitCommand,
+                    onHistoryUp: { navigateHistory(up: true) },
+                    onHistoryDown: { navigateHistory(up: false) }
+                )
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.background.secondary)
+    }
+
+    private func submitCommand() {
+        historyNavigator.reset()
+        onSubmit()
+    }
+
+    private func navigateHistory(up: Bool) {
+        guard let nextInput = historyNavigator.navigate(
+            up: up,
+            commands: commandHistory,
+            currentInput: commandInput
+        ) else {
+            return
+        }
+        commandInput = nextInput
     }
 
     @ViewBuilder
@@ -127,6 +194,75 @@ private struct TerminalPanelContent: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.red)
                 .textSelection(.enabled)
+        }
+    }
+}
+
+private struct TerminalCommandTextField: NSViewRepresentable {
+    @Binding var text: String
+    var isEnabled: Bool
+    var placeholder: String
+    var onSubmit: () -> Void
+    var onHistoryUp: () -> Void
+    var onHistoryDown: () -> Void
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        field.placeholderString = placeholder
+        field.delegate = context.coordinator
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.submit(_:))
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+        field.placeholderString = placeholder
+        field.isEnabled = isEnabled
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: TerminalCommandTextField
+
+        init(parent: TerminalCommandTextField) {
+            self.parent = parent
+        }
+
+        @objc func submit(_ sender: NSTextField) {
+            parent.onSubmit()
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.moveUp(_:)):
+                parent.onHistoryUp()
+                return true
+            case #selector(NSResponder.moveDown(_:)):
+                parent.onHistoryDown()
+                return true
+            case #selector(NSResponder.insertNewline(_:)):
+                parent.onSubmit()
+                return true
+            default:
+                return false
+            }
         }
     }
 }
