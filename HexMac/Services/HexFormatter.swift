@@ -82,6 +82,15 @@ enum HexFormatter {
         String(byte, radix: 2).leftPadded(to: 8, with: "0")
     }
 
+    static func binaryString(for bytes: [UInt8], bitWidth: Int) -> String {
+        let byteCount = bitWidth / 8
+        let used = Array(bytes.prefix(byteCount))
+        let padded = used.count >= byteCount
+            ? used
+            : used + Array(repeating: 0, count: byteCount - used.count)
+        return padded.map { binaryString(for: $0) }.joined()
+    }
+
     static func formattedFileSize(_ size: Int) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
     }

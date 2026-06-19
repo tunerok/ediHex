@@ -72,7 +72,10 @@ final class WorkspaceViewModel {
         addPane(pane, activate: true)
     }
 
-    func openFileInNewTab() {
+    func openFileInNewTab(inGroup groupID: UUID? = nil) {
+        if let groupID {
+            activateGroup(id: groupID)
+        }
         openFilePanel()
     }
 

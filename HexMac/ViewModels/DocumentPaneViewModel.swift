@@ -170,6 +170,7 @@ final class DocumentPaneViewModel: Identifiable {
         let end = selection.end
         highlights.removeAll { $0.overlaps(rangeStart: start, rangeEnd: end) }
         highlights.append(HexHighlight(start: start, end: end, color: color))
+        self.selection = nil
     }
 
     func removeHighlights(containing offset: Int) {

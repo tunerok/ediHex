@@ -18,89 +18,88 @@ struct InspectorPanelView: View {
         SelectionIntegerParser.interpretations(for: bytes)
     }
 
+    private var displayStartOffset: Int {
+        selection?.start ?? 0
+    }
+
+    private var displayLength: Int {
+        selection?.length ?? 0
+    }
+
+    private var displayBinaryBitWidth: Int {
+        let byteCount = bytes.isEmpty ? 1 : min(bytes.count, 4)
+        return byteCount * 8
+    }
+
+    private var displayBinary: String {
+        HexFormatter.binaryString(for: bytes, bitWidth: displayBinaryBitWidth)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Inspector")
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
 
             Divider()
 
-            if let selection, !bytes.isEmpty {
-                ScrollView {
-                    Form {
-                        Section(String(localized: "Selection")) {
-                            InspectorRow(title: String(localized: "Offset (hex)")) {
-                                Text("0x\(HexFormatter.offsetString(for: selection.start))")
-                            }
-
-                            InspectorRow(title: String(localized: "Offset (dec)")) {
-                                Text("\(selection.start)")
-                            }
-
-                            InspectorRow(title: String(localized: "Hex")) {
-                                Text(HexFormatter.hexString(for: bytes))
-                            }
-
-                            if bytes.count == 1, let byte = bytes.first {
-                                InspectorRow(title: String(localized: "Binary")) {
-                                    Text(HexFormatter.binaryString(for: byte))
-                                }
-
-                                InspectorRow(title: String(localized: "Character")) {
-                                    Text(String(HexFormatter.asciiCharacter(for: byte)))
-                                }
-                            }
-
-                            InspectorRow(title: String(localized: "Length")) {
-                                Text("\(selection.length) \(String(localized: "bytes"))")
-                            }
+            ScrollView {
+                Form {
+                    Section(String(localized: "Selection")) {
+                        InspectorRow(title: String(localized: "Offset (hex)")) {
+                            Text("0x\(HexFormatter.offsetString(for: displayStartOffset))")
                         }
 
-                        Section(String(localized: "Highlights")) {
-                            HighlightColorPicker(onSelect: onAddHighlight)
+                        InspectorRow(title: String(localized: "Offset (dec)")) {
+                            Text("\(displayStartOffset)")
+                        }
 
-                            if highlights.isEmpty {
-                                Text(String(localized: "No highlights"))
-                                    .foregroundStyle(.secondary)
+                        InspectorRow(title: String(localized: "Length")) {
+                            Text("\(displayLength) \(String(localized: "bytes"))")
+                        }
+                    }
+
+                    Section(String(localized: "Highlights")) {
+                        HighlightColorPicker(onSelect: onAddHighlight)
+
+                        if highlights.isEmpty {
+                            Text(String(localized: "No highlights"))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(highlights) { highlight in
+                                HighlightRow(
+                                    highlight: highlight,
+                                    onNavigate: { onNavigateToHighlight(highlight) },
+                                    onRemove: { onRemoveHighlight(highlight.id) }
+                                )
+                            }
+                        }
+                    }
+
+                    Section(String(localized: "Values")) {
+                        InspectorRow(title: String(localized: "Binary")) {
+                            Text(displayBinary)
+                        }
+
+                        ForEach(integerInterpretations) { interpretation in
+                            if interpretation.littleEndian == interpretation.bigEndian {
+                                InspectorRow(title: interpretation.typeName) {
+                                    Text(interpretation.littleEndian)
+                                }
                             } else {
-                                ForEach(highlights) { highlight in
-                                    HighlightRow(
-                                        highlight: highlight,
-                                        onNavigate: { onNavigateToHighlight(highlight) },
-                                        onRemove: { onRemoveHighlight(highlight.id) }
-                                    )
+                                InspectorRow(title: "\(interpretation.typeName) LE") {
+                                    Text(interpretation.littleEndian)
                                 }
-                            }
-                        }
-
-                        Section(String(localized: "Integer values")) {
-                            ForEach(integerInterpretations) { interpretation in
-                                if interpretation.littleEndian == interpretation.bigEndian {
-                                    InspectorRow(title: interpretation.typeName) {
-                                        Text(interpretation.littleEndian)
-                                    }
-                                } else {
-                                    InspectorRow(title: "\(interpretation.typeName) LE") {
-                                        Text(interpretation.littleEndian)
-                                    }
-                                    InspectorRow(title: "\(interpretation.typeName) BE") {
-                                        Text(interpretation.bigEndian)
-                                    }
+                                InspectorRow(title: "\(interpretation.typeName) BE") {
+                                    Text(interpretation.bigEndian)
                                 }
                             }
                         }
                     }
-                    .formStyle(.grouped)
                 }
-            } else {
-                ContentUnavailableView(
-                    String(localized: "No Selection"),
-                    systemImage: "cursorarrow",
-                    description: Text("Select a byte to inspect")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .formStyle(.grouped)
+                .font(.callout)
             }
 
             Spacer(minLength: 0)
@@ -148,7 +147,7 @@ private struct HighlightRow: View {
                         .frame(width: 12, height: 12)
 
                     Text("0x\(HexFormatter.offsetString(for: highlight.start)) – 0x\(HexFormatter.offsetString(for: highlight.end))")
-                        .font(.body.monospaced())
+                        .font(.callout.monospaced())
                         .foregroundStyle(.primary)
                 }
             }
@@ -171,18 +170,30 @@ private struct InspectorRow<Content: View>: View {
     var body: some View {
         LabeledContent(title) {
             content
-                .font(.body.monospaced())
+                .font(.callout.monospaced())
                 .textSelection(.enabled)
         }
     }
 }
 
-#Preview {
+#Preview("With selection") {
     InspectorPanelView(
         selection: .single(at: 72),
         bytes: [0x48],
         selectedOffset: 72,
         highlights: [HexHighlight(start: 64, end: 80, color: .yellow)],
+        onAddHighlight: { _ in },
+        onRemoveHighlight: { _ in },
+        onNavigateToHighlight: { _ in }
+    )
+}
+
+#Preview("No selection") {
+    InspectorPanelView(
+        selection: nil,
+        bytes: [],
+        selectedOffset: nil,
+        highlights: [],
         onAddHighlight: { _ in },
         onRemoveHighlight: { _ in },
         onNavigateToHighlight: { _ in }

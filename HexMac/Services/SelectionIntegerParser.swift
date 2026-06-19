@@ -15,8 +15,6 @@ struct IntegerInterpretation: Identifiable {
 
 enum SelectionIntegerParser {
     static func interpretations(for bytes: [UInt8]) -> [IntegerInterpretation] {
-        guard !bytes.isEmpty else { return [] }
-
         return [
             IntegerInterpretation(
                 typeName: "uint8_t",

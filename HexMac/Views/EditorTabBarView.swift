@@ -10,12 +10,27 @@ struct EditorTabBarView: View {
     let group: EditorTabGroup
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(group.panes) { pane in
-                    tabItem(for: pane)
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(group.panes) { pane in
+                        tabItem(for: pane)
+                    }
                 }
             }
+
+            Button {
+                workspace.openFileInNewTab(inGroup: group.id)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .accessibilityLabel(String(localized: "Open File…"))
+            .help(String(localized: "Open File…"))
         }
         .frame(maxWidth: .infinity)
         .background(.bar)
