@@ -14,9 +14,6 @@ enum HashAlgorithm: String, CaseIterable, Identifiable {
     case sha256
     case sha384
     case sha512
-    case sha3_256
-    case sha3_384
-    case sha3_512
 
     var id: String { rawValue }
 
@@ -34,12 +31,6 @@ enum HashAlgorithm: String, CaseIterable, Identifiable {
             "SHA-384"
         case .sha512:
             "SHA-512"
-        case .sha3_256:
-            "SHA3-256"
-        case .sha3_384:
-            "SHA3-384"
-        case .sha3_512:
-            "SHA3-512"
         }
     }
 
@@ -64,12 +55,6 @@ enum HashAlgorithm: String, CaseIterable, Identifiable {
             hexString(SHA384.hash(data: data))
         case .sha512:
             hexString(SHA512.hash(data: data))
-        case .sha3_256:
-            hexString(SHA3_256.hash(data: data))
-        case .sha3_384:
-            hexString(SHA3_384.hash(data: data))
-        case .sha3_512:
-            hexString(SHA3_512.hash(data: data))
         }
     }
 
