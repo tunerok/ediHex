@@ -1,5 +1,7 @@
 # HexMac
 
+![HexMac hex editor](Img/2.png)
+
 Native macOS hex editor for inspecting, editing, and analyzing binary files. Built with SwiftUI and memory-mapped I/O for fast work with large files.
 
 ## Features
@@ -105,3 +107,19 @@ Issues and pull requests are welcome. Please keep changes focused and match the 
 [GNU General Public License v3.0](LICENSE) — Copyright © 2026 [tunerok](https://github.com/tunerok).
 
 HexMac is free software: you may redistribute and/or modify it under the terms of the GPL v3 or (at your option) any later version.
+
+## Screenshots
+
+![Screenshot 1](Img/1.png)
+
+![Screenshot 2](Img/2.png)
+
+![Screenshot 3](Img/3.png)
+
+![Screenshot 4](Img/4.png)
+
+![Screenshot 5](Img/5.png)
+
+![Screenshot 6](Img/6.png)
+
+![Screenshot 7](Img/7.png)
