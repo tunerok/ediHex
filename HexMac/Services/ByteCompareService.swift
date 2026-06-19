@@ -387,8 +387,8 @@ enum ByteCompareService {
 
         while cursor < total {
             let chunkEnd = min(total, cursor + chunkSize)
-            let leftRange = cursor..<min(leftSize, chunkEnd)
-            let rightRange = cursor..<min(rightSize, chunkEnd)
+            let leftRange = clampedRange(from: cursor, to: min(leftSize, chunkEnd))
+            let rightRange = clampedRange(from: cursor, to: min(rightSize, chunkEnd))
             let leftChunk = leftRange.isEmpty ? [] : leftBytes(leftRange)
             let rightChunk = rightRange.isEmpty ? [] : rightBytes(rightRange)
 
@@ -517,6 +517,10 @@ enum ByteCompareService {
     nonisolated static func byte(at offset: Int, in size: Int, provider: (Int) -> UInt8?) -> UInt8? {
         guard offset < size else { return nil }
         return provider(offset)
+    }
+
+    nonisolated private static func clampedRange(from lower: Int, to upper: Int) -> Range<Int> {
+        lower < upper ? lower..<upper : 0..<0
     }
 
     nonisolated private static func sampleOffsets(

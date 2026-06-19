@@ -318,4 +318,22 @@ final class ByteCompareServiceTests: XCTestCase {
         XCTAssertTrue(map.leftKinds.contains(.changed))
         XCTAssertTrue(map.rightKinds.contains(.changed))
     }
+
+    func testBuildDiffMapIncrementalUnequalSizesDoesNotCrash() {
+        let left = Array(repeating: UInt8(0x00), count: 100)
+        let right = Array(repeating: UInt8(0xFF), count: 10_000)
+
+        let map = ByteCompareService.buildDiffMapIncremental(
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) },
+            bucketCount: 4,
+            chunkSize: 64,
+            strideOverride: 1
+        )
+
+        XCTAssertEqual(map.totalBytes, right.count)
+        XCTAssertTrue(map.rightKinds.contains(.added))
+    }
 }
