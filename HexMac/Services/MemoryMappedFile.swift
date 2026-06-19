@@ -32,7 +32,7 @@ enum MemoryMappedFileError: Error, LocalizedError {
     }
 }
 
-final class MemoryMappedFile {
+final class MemoryMappedFile: @unchecked Sendable {
     private var fd: Int32
     private var pointer: UnsafeMutableRawPointer?
     private var hasSecurityScope: Bool
@@ -100,14 +100,14 @@ final class MemoryMappedFile {
         close()
     }
 
-    func byte(at offset: Int) throws -> UInt8 {
+    nonisolated func byte(at offset: Int) throws -> UInt8 {
         guard offset >= 0, offset < size, let pointer else {
             throw MemoryMappedFileError.outOfBounds
         }
         return pointer.load(fromByteOffset: offset, as: UInt8.self)
     }
 
-    func bytes(in range: Range<Int>) throws -> [UInt8] {
+    nonisolated func bytes(in range: Range<Int>) throws -> [UInt8] {
         guard range.lowerBound >= 0, range.upperBound <= size, let pointer else {
             throw MemoryMappedFileError.outOfBounds
         }

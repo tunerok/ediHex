@@ -664,7 +664,7 @@ final class DocumentPaneViewModel: Identifiable {
                 return .notFound
             }
 
-            var session = FindSession(
+            let session = FindSession(
                 pattern: pattern,
                 mode: mode,
                 entireFile: entireFile,

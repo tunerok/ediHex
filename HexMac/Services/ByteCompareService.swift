@@ -105,7 +105,7 @@ enum CompareDiffExportFormat {
 }
 
 enum ByteCompareService {
-    static let defaultBucketCount = 400
+    nonisolated static let defaultBucketCount = 400
 
     static func highlightColor(for kind: DiffRegionKind) -> HighlightColor? {
         switch kind {
@@ -138,7 +138,7 @@ enum ByteCompareService {
         return highlightColor(for: kind)
     }
 
-    static func diffKind(
+    nonisolated static func diffKind(
         leftSize: Int,
         rightSize: Int,
         leftByte: UInt8?,
@@ -150,9 +150,15 @@ enum ByteCompareService {
 
         switch (hasLeft, hasRight) {
         case (true, false):
-            return side == .left ? .deleted : nil
+            switch side {
+            case .left: return .deleted
+            case .right: return nil
+            }
         case (false, true):
-            return side == .right ? .added : nil
+            switch side {
+            case .left: return nil
+            case .right: return .added
+            }
         case (true, true):
             guard let leftByte, let rightByte, leftByte != rightByte else { return .equal }
             return .changed
@@ -161,7 +167,7 @@ enum ByteCompareService {
         }
     }
 
-    static func diffEntry(
+    nonisolated static func diffEntry(
         at offset: Int,
         leftSize: Int,
         rightSize: Int,
@@ -185,7 +191,7 @@ enum ByteCompareService {
         }
     }
 
-    static func collectDiffEntries(
+    nonisolated static func collectDiffEntries(
         from index: CompareDiffIndex,
         leftSize: Int,
         rightSize: Int,
@@ -211,7 +217,7 @@ enum ByteCompareService {
         return entries
     }
 
-    static func collectDiffEntries(
+    nonisolated static func collectDiffEntries(
         leftSize: Int,
         rightSize: Int,
         leftByte: (Int) -> UInt8?,
@@ -239,7 +245,7 @@ enum ByteCompareService {
         return entries
     }
 
-    static func buildDiffIndex(
+    nonisolated static func buildDiffIndex(
         leftSize: Int,
         rightSize: Int,
         leftByte: (Int) -> UInt8?,
@@ -313,7 +319,7 @@ enum ByteCompareService {
         return CompareDiffIndex(totalBytes: total, regions: regions, map: map)
     }
 
-    static func buildDiffMap(
+    nonisolated static func buildDiffMap(
         leftSize: Int,
         rightSize: Int,
         leftByte: (Int) -> UInt8?,
@@ -329,7 +335,7 @@ enum ByteCompareService {
         ).map
     }
 
-    static func formatTextReport(
+    nonisolated static func formatTextReport(
         entries: [DiffEntry],
         leftName: String,
         rightName: String
@@ -387,7 +393,7 @@ enum ByteCompareService {
         return lines.joined(separator: "\n")
     }
 
-    static func formatCSV(entries: [DiffEntry]) -> String {
+    nonisolated static func formatCSV(entries: [DiffEntry]) -> String {
         var lines = ["offset,kind,left_hex,right_hex"]
         lines.reserveCapacity(entries.count + 1)
 
@@ -400,12 +406,12 @@ enum ByteCompareService {
         return lines.joined(separator: "\n")
     }
 
-    static func byte(at offset: Int, in size: Int, provider: (Int) -> UInt8?) -> UInt8? {
+    nonisolated static func byte(at offset: Int, in size: Int, provider: (Int) -> UInt8?) -> UInt8? {
         guard offset < size else { return nil }
         return provider(offset)
     }
 
-    private static func diffKinds(
+    nonisolated private static func diffKinds(
         leftByte: UInt8?,
         rightByte: UInt8?
     ) -> (left: DiffRegionKind, right: DiffRegionKind) {
@@ -427,11 +433,11 @@ enum ByteCompareService {
         }
     }
 
-    private static func maxPriority(_ current: DiffRegionKind, _ candidate: DiffRegionKind) -> DiffRegionKind {
+    nonisolated private static func maxPriority(_ current: DiffRegionKind, _ candidate: DiffRegionKind) -> DiffRegionKind {
         priority(for: candidate) > priority(for: current) ? candidate : current
     }
 
-    private static func priority(for kind: DiffRegionKind) -> Int {
+    nonisolated private static func priority(for kind: DiffRegionKind) -> Int {
         switch kind {
         case .changed: 3
         case .deleted, .added: 2
@@ -439,7 +445,7 @@ enum ByteCompareService {
         }
     }
 
-    private static func formatTextLine(
+    nonisolated private static func formatTextLine(
         offset: String,
         kind: DiffRegionKind,
         leftByte: UInt8?,
@@ -447,6 +453,6 @@ enum ByteCompareService {
     ) -> String {
         let left = leftByte.map { HexFormatter.hexPair(for: $0) } ?? "--"
         let right = rightByte.map { HexFormatter.hexPair(for: $0) } ?? "--"
-        return "0x\(offset)  \(kind.label)  \(left) -> \(right)"
+        return "0x\(offset)  \(kind.rawValue)  \(left) -> \(right)"
     }
 }
