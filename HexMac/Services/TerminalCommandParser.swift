@@ -138,15 +138,16 @@ enum TerminalCommandParser {
         flags: TerminalSamplingFlags,
         bytesProvider: (Range<Int>) -> [UInt8]
     ) -> Result<[UInt8], TerminalParseError> {
-        guard let spec = TerminalRangeSpec.parse(positionalTokens: positionalTokens, fileSize: fileSize) else {
-            return .failure(TerminalParseError(message: String(localized: "Invalid range. Type help ranges for syntax.")))
+        switch TerminalRangeSpec.parse(positionalTokens: positionalTokens, fileSize: fileSize) {
+        case .failure(let error):
+            return .failure(error)
+        case .success(let spec):
+            let bytes = TerminalByteSampler.collect(from: spec, flags: flags, bytesProvider: bytesProvider)
+            guard !bytes.isEmpty else {
+                return .failure(TerminalParseError(message: String(localized: "Empty range")))
+            }
+            return .success(bytes)
         }
-
-        let bytes = TerminalByteSampler.collect(from: spec, flags: flags, bytesProvider: bytesProvider)
-        guard !bytes.isEmpty else {
-            return .failure(TerminalParseError(message: String(localized: "Empty range")))
-        }
-        return .success(bytes)
     }
 
     // MARK: - Commands
@@ -172,8 +173,8 @@ enum TerminalCommandParser {
         guard tokens.count == 2, let offset = TerminalOffsetParser.parse(tokens[1]) else {
             return .error(String(localized: "Usage: goto <offset>"))
         }
-        guard offset >= 0, offset < fileSize else {
-            return .error(String(localized: "Offset out of bounds"))
+        if let boundsError = TerminalOffsetParser.validateInFile(offset: offset, text: tokens[1], fileSize: fileSize) {
+            return .error(boundsError.message)
         }
         return .navigate(offset)
     }
@@ -451,12 +452,22 @@ enum TerminalCommandParser {
             return .error(String(localized: "Usage: read <u8|u16|u32|u64|i16|i32> <offset> [--le|--be]"))
         }
 
-        let end = offset + type.byteCount
-        guard offset >= 0, end <= fileSize else {
-            return .error(String(localized: "Offset out of bounds"))
+        let endInclusive = offset + type.byteCount - 1
+        if let boundsError = TerminalOffsetParser.validateInFile(
+            offset: offset,
+            text: split.positionalTokens[1],
+            fileSize: fileSize
+        ) {
+            return .error(boundsError.message)
+        }
+        if endInclusive >= fileSize {
+            let endText = String(endInclusive)
+            return .error(
+                TerminalOffsetParser.boundsError(offset: endInclusive, text: endText, fileSize: fileSize).message
+            )
         }
 
-        let bytes = bytesProvider(offset..<end)
+        let bytes = bytesProvider(offset..<(offset + type.byteCount))
         guard bytes.count == type.byteCount else {
             return .error(String(localized: "Unable to read bytes at offset"))
         }
@@ -512,10 +523,13 @@ enum TerminalCommandParser {
             let segments: [Range<Int>]
             if patternResult.rangeTokens.isEmpty {
                 segments = [0..<fileSize]
-            } else if let spec = TerminalRangeSpec.parse(positionalTokens: patternResult.rangeTokens, fileSize: fileSize) {
-                segments = spec.segments
             } else {
-                return .error(String(localized: "Invalid search range"))
+                switch TerminalRangeSpec.parse(positionalTokens: patternResult.rangeTokens, fileSize: fileSize) {
+                case .failure(let error):
+                    return .error(error.message)
+                case .success(let spec):
+                    segments = spec.segments
+                }
             }
 
             var allMatches: [Int] = []
@@ -539,37 +553,42 @@ enum TerminalCommandParser {
         case .failure(let error):
             return .error(error.message)
         case .success(let parsed):
-            guard let spec = TerminalRangeSpec.parse(positionalTokens: parsed.positionalTokens, fileSize: fileSize) else {
-                return .error(String(localized: "Usage: cmp <start> <end>, <start> <end>"))
-            }
-            guard spec.segments.count == 2 else {
-                return .error(String(localized: "cmp requires exactly two ranges separated by comma"))
-            }
+            switch TerminalRangeSpec.parse(positionalTokens: parsed.positionalTokens, fileSize: fileSize) {
+            case .failure(let error):
+                return .error(error.message)
+            case .success(let spec):
+                guard spec.segments.count == 2 else {
+                    return .error(String(localized: "cmp requires exactly two ranges separated by comma"))
+                }
 
-            let left = TerminalByteSampler.collect(
-                from: TerminalRangeSpec(segments: [spec.segments[0]]),
-                flags: parsed.samplingFlags,
-                bytesProvider: bytesProvider
-            )
-            let right = TerminalByteSampler.collect(
-                from: TerminalRangeSpec(segments: [spec.segments[1]]),
-                flags: parsed.samplingFlags,
-                bytesProvider: bytesProvider
-            )
-
-            guard !left.isEmpty, !right.isEmpty else {
-                return .error(String(localized: "Empty range"))
-            }
-            guard left.count == right.count else {
-                return .error(String(localized: "Ranges have different lengths: \(left.count) vs \(right.count)"))
-            }
-
-            for index in left.indices where left[index] != right[index] {
-                return .output(
-                    "Diff at index \(index): 0x\(HexFormatter.hexPair(for: left[index])) vs 0x\(HexFormatter.hexPair(for: right[index]))"
+                let left = TerminalByteSampler.collect(
+                    from: TerminalRangeSpec(segments: [spec.segments[0]]),
+                    flags: parsed.samplingFlags,
+                    bytesProvider: bytesProvider
                 )
+                let right = TerminalByteSampler.collect(
+                    from: TerminalRangeSpec(segments: [spec.segments[1]]),
+                    flags: parsed.samplingFlags,
+                    bytesProvider: bytesProvider
+                )
+
+                guard !left.isEmpty, !right.isEmpty else {
+                    return .error(String(localized: "Empty range"))
+                }
+                guard left.count == right.count else {
+                    return .error(String(localized: "Ranges have different lengths: \(left.count) vs \(right.count)"))
+                }
+
+                let diffs = left.indices.compactMap { index -> String? in
+                    guard left[index] != right[index] else { return nil }
+                    return "Diff at index \(index): 0x\(HexFormatter.hexPair(for: left[index])) vs 0x\(HexFormatter.hexPair(for: right[index]))"
+                }
+
+                if diffs.isEmpty {
+                    return .output(String(localized: "Equal"))
+                }
+                return .output(diffs.joined(separator: "\n"))
             }
-            return .output(String(localized: "Equal"))
         }
     }
 
@@ -582,9 +601,9 @@ enum TerminalCommandParser {
         case .failure(let error):
             return .error(error.message)
         case .success(let parsed):
-            guard let algorithmName = parsed.positionalTokens.first?.lowercased(),
-                  let algorithm = HashAlgorithm(rawValue: algorithmName) else {
-                return .error(String(localized: "Usage: hash <md5|sha1|sha256> <start> <end>[, ...]"))
+            guard let algorithmName = parsed.positionalTokens.first,
+                  let algorithm = HashAlgorithm.matching(algorithmName) else {
+                return .error(String(localized: "Usage: hash <algorithm> <start> <end>[, ...]"))
             }
 
             let rangeTokens = Array(parsed.positionalTokens.dropFirst())
@@ -660,7 +679,8 @@ enum TerminalCommandParser {
       find <pattern> [ranges]       search bytes; pattern: DEADBEEF or 0xDE 0xAD
       find --ascii <text> [ranges]  search ASCII text; lists all matches
       cmp <r1>, <r2>                compare two equal-length ranges
-      hash <md5|sha1|sha256> <ranges>
+      hash <algorithm> <ranges>       md5, sha1, sha224, sha256, sha384, sha512,
+                                      sha3-256, sha3-384, sha3-512
 
     Topics: help ranges | help filters | help crc
     """

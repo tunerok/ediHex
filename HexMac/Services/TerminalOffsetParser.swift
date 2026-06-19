@@ -28,4 +28,42 @@ enum TerminalOffsetParser {
         }
         return UInt64(trimmed)
     }
+
+    static func boundsError(offset: Int, text: String, fileSize: Int) -> TerminalParseError {
+        if offset < 0 {
+            return TerminalParseError(message: String(localized: "Offset out of bounds: \(text)"))
+        }
+        return TerminalParseError(
+            message: String(localized: "Offset out of bounds: \(text) (file size is \(fileSize))")
+        )
+    }
+
+    static func validateInFile(offset: Int, text: String, fileSize: Int) -> TerminalParseError? {
+        guard offset >= 0, offset < fileSize else {
+            return boundsError(offset: offset, text: text, fileSize: fileSize)
+        }
+        return nil
+    }
+
+    static func validateRangeInFile(
+        start: Int,
+        endInclusive: Int,
+        startText: String,
+        endText: String,
+        fileSize: Int
+    ) -> TerminalParseError? {
+        if start < 0 {
+            return boundsError(offset: start, text: startText, fileSize: fileSize)
+        }
+        if endInclusive < 0 {
+            return boundsError(offset: endInclusive, text: endText, fileSize: fileSize)
+        }
+        if start >= fileSize {
+            return boundsError(offset: start, text: startText, fileSize: fileSize)
+        }
+        if endInclusive >= fileSize {
+            return boundsError(offset: endInclusive, text: endText, fileSize: fileSize)
+        }
+        return nil
+    }
 }

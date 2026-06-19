@@ -74,7 +74,7 @@ struct HashCalculatorView: View {
             }
         }
         .padding(20)
-        .frame(width: 480)
+        .frame(minWidth: 480, maxWidth: 640)
     }
 
     private func calculate() {

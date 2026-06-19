@@ -8,32 +8,37 @@ import XCTest
 
 final class TerminalRangeSpecTests: XCTestCase {
     func testSingleDecimalRange() {
-        let spec = TerminalRangeSpec.parse(positionalTokens: ["0", "100"], fileSize: 200)
+        let spec = try? TerminalRangeSpec.parse(positionalTokens: ["0", "100"], fileSize: 200).get()
         XCTAssertEqual(spec?.segments, [0..<101])
     }
 
     func testSingleHexRange() {
-        let spec = TerminalRangeSpec.parse(positionalTokens: ["0x0", "0xFF"], fileSize: 256)
+        let spec = try? TerminalRangeSpec.parse(positionalTokens: ["0x0", "0xFF"], fileSize: 256).get()
         XCTAssertEqual(spec?.segments, [0..<256])
     }
 
     func testMixedDecimalAndHex() {
-        let spec = TerminalRangeSpec.parse(positionalTokens: ["0", "0xFF"], fileSize: 256)
+        let spec = try? TerminalRangeSpec.parse(positionalTokens: ["0", "0xFF"], fileSize: 256).get()
         XCTAssertEqual(spec?.segments, [0..<256])
     }
 
     func testMultiSegmentRange() {
-        let spec = TerminalRangeSpec.parse(positionalTokens: ["0", "255,", "512", "767"], fileSize: 1000)
+        let spec = try? TerminalRangeSpec.parse(positionalTokens: ["0", "255,", "512", "767"], fileSize: 1000).get()
         XCTAssertEqual(spec?.segments, [0..<256, 512..<768])
     }
 
     func testReversedEndpoints() {
-        let spec = TerminalRangeSpec.parse(positionalTokens: ["100", "0"], fileSize: 200)
+        let spec = try? TerminalRangeSpec.parse(positionalTokens: ["100", "0"], fileSize: 200).get()
         XCTAssertEqual(spec?.segments, [0..<101])
     }
 
     func testOutOfBoundsRejected() {
-        XCTAssertNil(TerminalRangeSpec.parse(positionalTokens: ["0", "300"], fileSize: 200))
+        let result = TerminalRangeSpec.parse(positionalTokens: ["0", "300"], fileSize: 200)
+        guard case .failure(let error) = result else {
+            return XCTFail("Expected failure")
+        }
+        XCTAssertTrue(error.message.contains("300"))
+        XCTAssertTrue(error.message.contains("200"))
     }
 }
 
@@ -191,5 +196,44 @@ final class TerminalCommandParserTests: XCTestCase {
         guard case .error = result else {
             return XCTFail("Expected error")
         }
+    }
+
+    func testCompareReportsAllDifferences() {
+        let result = TerminalCommandParser.execute(
+            "cmp 0 2, 3 5",
+            fileSize: 10,
+            bytesProvider: { range in
+                (range.lowerBound..<range.upperBound).map { UInt8($0) }
+            }
+        )
+        guard case .output(let text) = result else {
+            return XCTFail("Expected output")
+        }
+        XCTAssertTrue(text.contains("Diff at index 0"))
+        XCTAssertTrue(text.contains("Diff at index 1"))
+        XCTAssertTrue(text.contains("Diff at index 2"))
+    }
+
+    func testCompareEqualRanges() {
+        let result = TerminalCommandParser.execute(
+            "cmp 0 2, 0 2",
+            fileSize: 10,
+            bytesProvider: { range in
+                (range.lowerBound..<range.upperBound).map { UInt8($0) }
+            }
+        )
+        guard case .output(let text) = result else {
+            return XCTFail("Expected output")
+        }
+        XCTAssertEqual(text, String(localized: "Equal"))
+    }
+
+    func testSumOutOfBoundsReportsFileSize() {
+        let result = TerminalCommandParser.execute("sum 0 300", fileSize: 200, bytesProvider: makeProvider())
+        guard case .error(let message) = result else {
+            return XCTFail("Expected error")
+        }
+        XCTAssertTrue(message.contains("300"))
+        XCTAssertTrue(message.contains("200"))
     }
 }
