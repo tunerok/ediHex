@@ -8,11 +8,11 @@ import SwiftUI
 
 @main
 struct HexMacApp: App {
-    @State private var viewModel = HexEditorViewModel()
+    @State private var workspace = WorkspaceViewModel()
 
     var body: some Scene {
         WindowGroup {
-            ContentView(viewModel: viewModel)
+            ContentView(workspace: workspace)
         }
         Settings {
             SettingsView()
@@ -43,29 +43,35 @@ struct HexMacApp: App {
 
         CommandGroup(after: .newItem) {
             Button(String(localized: "Open…")) {
-                viewModel.openFilePanel()
+                workspace.openFilePanel()
             }
             .keyboardShortcut("o", modifiers: .command)
 
-            Button(String(localized: "Close")) {
-                viewModel.closeDocument()
+            Button(String(localized: "Close Tab")) {
+                workspace.closeActivePane()
             }
             .keyboardShortcut("w", modifiers: .command)
-            .disabled(!viewModel.isDocumentOpen)
+            .disabled(!workspace.hasOpenPanes)
+
+            Button(String(localized: "Close Editor Group")) {
+                workspace.closeActiveGroup()
+            }
+            .keyboardShortcut("w", modifiers: [.command, .shift])
+            .disabled(!workspace.hasOpenPanes)
         }
 
         CommandGroup(replacing: .saveItem) {
             Button(String(localized: "Save")) {
-                viewModel.save()
+                workspace.save()
             }
             .keyboardShortcut("s", modifiers: .command)
-            .disabled(!viewModel.canSave)
+            .disabled(!workspace.canSave)
 
             Button(String(localized: "Save As…")) {
-                viewModel.saveAs()
+                workspace.saveAs()
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
-            .disabled(!viewModel.isDocumentOpen)
+            .disabled(!workspace.isDocumentOpen)
         }
     }
 
@@ -73,61 +79,89 @@ struct HexMacApp: App {
     private var editMenuCommands: some Commands {
         CommandGroup(replacing: .undoRedo) {
             Button(String(localized: "Undo")) {
-                viewModel.undo()
+                workspace.undo()
             }
             .keyboardShortcut("z", modifiers: .command)
-            .disabled(!viewModel.isDocumentOpen)
+            .disabled(!workspace.isDocumentOpen)
 
             Button(String(localized: "Redo")) {
-                viewModel.redo()
+                workspace.redo()
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
-            .disabled(!viewModel.isDocumentOpen)
+            .disabled(!workspace.isDocumentOpen)
         }
 
         CommandGroup(replacing: .pasteboard) {
             Button(String(localized: "Copy")) {
-                viewModel.copySelectionHex()
+                workspace.copySelectionHex()
             }
             .keyboardShortcut("c", modifiers: .command)
-            .disabled(!viewModel.hasSelection)
+            .disabled(!workspace.hasSelection)
 
             Button(String(localized: "Show as Binary…")) {
-                viewModel.openBinarySheet()
+                workspace.openBinarySheet()
             }
-            .disabled(!viewModel.hasSelection)
+            .disabled(!workspace.hasSelection)
 
             Button(String(localized: "Clear…")) {
-                viewModel.requestFillSelection()
+                workspace.requestFillSelection()
             }
-            .disabled(!viewModel.hasSelection)
+            .disabled(!workspace.hasSelection)
         }
     }
 
     @CommandsBuilder
     private var viewMenuCommands: some Commands {
         CommandGroup(after: .toolbar) {
+            Button(String(localized: "Split Right")) {
+                workspace.splitActive(axis: .horizontal)
+            }
+            .keyboardShortcut("\\", modifiers: .command)
+            .disabled(!workspace.isDocumentOpen)
+
+            Button(String(localized: "Split Down")) {
+                workspace.splitActive(axis: .vertical)
+            }
+            .keyboardShortcut("\\", modifiers: [.command, .shift])
+            .disabled(!workspace.isDocumentOpen)
+
+            Divider()
+
+            Button(String(localized: "Next Tab")) {
+                workspace.selectNextTab()
+            }
+            .keyboardShortcut("]", modifiers: [.command, .shift])
+            .disabled(!workspace.hasOpenPanes)
+
+            Button(String(localized: "Previous Tab")) {
+                workspace.selectPreviousTab()
+            }
+            .keyboardShortcut("[", modifiers: [.command, .shift])
+            .disabled(!workspace.hasOpenPanes)
+
+            Divider()
+
             Menu(String(localized: "Bytes per Row")) {
                 ForEach(BytesPerRowSetting.allCases) { setting in
                     Button {
-                        viewModel.setBytesPerRow(setting)
+                        workspace.setBytesPerRow(setting)
                     } label: {
-                        if viewModel.bytesPerRow == setting {
+                        if workspace.bytesPerRow == setting {
                             Text("✓ \(setting.label)")
                         } else {
                             Text(setting.label)
                         }
                     }
-                    .disabled(!viewModel.isDocumentOpen)
+                    .disabled(!workspace.isDocumentOpen)
                 }
             }
 
             Menu(String(localized: "Text Encoding")) {
                 ForEach(TextEncodingMode.allCases) { mode in
                     Button {
-                        viewModel.textEncoding = mode
+                        workspace.setTextEncoding(mode)
                     } label: {
-                        if viewModel.textEncoding == mode {
+                        if workspace.textEncoding == mode {
                             Text("✓ \(mode.label)")
                         } else {
                             Text(mode.label)
@@ -142,21 +176,21 @@ struct HexMacApp: App {
     private var toolsMenuCommands: some Commands {
         CommandMenu(String(localized: "Tools")) {
             Button(String(localized: "Byte Histogram (Entire File)…")) {
-                viewModel.openHistogramForAll()
+                workspace.openHistogramForAll()
             }
-            .disabled(!viewModel.isDocumentOpen || viewModel.fileSize == 0)
+            .disabled(!workspace.isDocumentOpen || workspace.fileSize == 0)
 
             Button(String(localized: "Byte Histogram (Selection)…")) {
-                viewModel.openHistogramForSelection()
+                workspace.openHistogramForSelection()
             }
-            .disabled(!viewModel.hasSelection)
+            .disabled(!workspace.hasSelection)
 
             Divider()
 
             Button(String(localized: "Calculate CRC…")) {
-                viewModel.openCRCSheet()
+                workspace.openCRCSheet()
             }
-            .disabled(!viewModel.hasSelection)
+            .disabled(!workspace.hasSelection)
         }
     }
 }

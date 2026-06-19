@@ -1,5 +1,5 @@
 //
-//  HexEditorViewModel.swift
+//  DocumentPaneViewModel.swift
 //  HexMac
 //
 
@@ -9,7 +9,9 @@ import Observation
 
 @MainActor
 @Observable
-final class HexEditorViewModel {
+final class DocumentPaneViewModel: Identifiable {
+    let id = UUID()
+
     private(set) var document: HexDocument?
     var selection: HexSelection?
     var textEncoding: TextEncodingMode = .ascii
@@ -54,6 +56,16 @@ final class HexEditorViewModel {
         document?.isDirty ?? false
     }
 
+    var displayTitle: String {
+        guard let document else {
+            return String(localized: "Untitled")
+        }
+        if document.isDirty {
+            return "\(document.displayName) •"
+        }
+        return document.displayName
+    }
+
     var windowTitle: String {
         guard let document else {
             return String(localized: "HexMac")
@@ -72,24 +84,29 @@ final class HexEditorViewModel {
         isDocumentOpen && isDirty
     }
 
-    func openFile(from url: URL) {
-        closeDocument()
+    var hasSelection: Bool {
+        selection != nil
+    }
 
+    func loadFile(from url: URL) {
         do {
+            document?.close()
             document = try HexDocument.open(url: url, readOnly: false)
             selection = fileSize > 0 ? .single(at: 0) : nil
+            highlights = []
+            scrollTargetOffset = nil
+            terminalHistory = []
+            editingOffset = nil
+            editingHexText = ""
+            editingAppendedByte = false
+            undoManager.removeAllActions()
             bumpDataRevision()
         } catch {
             presentError(error.localizedDescription)
         }
     }
 
-    func openFilePanel() {
-        guard let url = FileAccessService.openFilePanel() else { return }
-        openFile(from: url)
-    }
-
-    func closeDocument() {
+    func close() {
         document?.close()
         document = nil
         selection = nil
@@ -240,10 +257,6 @@ final class HexEditorViewModel {
         showHistogramSheet = true
     }
 
-    var hasSelection: Bool {
-        selection != nil
-    }
-
     func executeTerminalCommand(_ input: String) {
         terminalHistory.append(TerminalLine(kind: .input, text: input))
 
@@ -270,10 +283,6 @@ final class HexEditorViewModel {
         case .error(let message):
             terminalHistory.append(TerminalLine(kind: .error, text: message))
         }
-    }
-
-    func selectByte(at offset: Int, extending: Bool = false) {
-        beginSelection(at: offset, extending: extending)
     }
 
     func byte(at offset: Int) -> UInt8? {
@@ -352,6 +361,39 @@ final class HexEditorViewModel {
         editingHexText = ""
     }
 
+    func save() {
+        guard let document else { return }
+        do {
+            try document.mappedFile.sync()
+            document.markClean()
+        } catch {
+            presentError(error.localizedDescription)
+        }
+    }
+
+    func saveAs() {
+        guard let document else { return }
+        guard let url = FileAccessService.saveFilePanel(suggestedName: document.displayName) else {
+            return
+        }
+
+        do {
+            let data = buildFullData()
+            try data.write(to: url, options: .atomic)
+            loadFile(from: url)
+        } catch {
+            presentError(error.localizedDescription)
+        }
+    }
+
+    func undo() {
+        undoManager.undo()
+    }
+
+    func redo() {
+        undoManager.redo()
+    }
+
     private func commitByte(at offset: Int, value: UInt8, wasAppended: Bool) {
         guard let document else { return }
 
@@ -422,39 +464,6 @@ final class HexEditorViewModel {
         } catch {
             presentError(error.localizedDescription)
         }
-    }
-
-    func save() {
-        guard let document else { return }
-        do {
-            try document.mappedFile.sync()
-            document.markClean()
-        } catch {
-            presentError(error.localizedDescription)
-        }
-    }
-
-    func saveAs() {
-        guard let document else { return }
-        guard let url = FileAccessService.saveFilePanel(suggestedName: document.displayName) else {
-            return
-        }
-
-        do {
-            let data = buildFullData()
-            try data.write(to: url, options: .atomic)
-            openFile(from: url)
-        } catch {
-            presentError(error.localizedDescription)
-        }
-    }
-
-    func undo() {
-        undoManager.undo()
-    }
-
-    func redo() {
-        undoManager.redo()
     }
 
     private func registerUndo(at offset: Int, oldValue: UInt8, newValue: UInt8) {

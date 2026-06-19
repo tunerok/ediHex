@@ -7,19 +7,19 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @Bindable var viewModel: HexEditorViewModel
+    @Bindable var workspace: WorkspaceViewModel
     @AppStorage("textEncoding") private var storedEncoding = TextEncodingMode.ascii.rawValue
 
     var body: some View {
         Group {
-            if viewModel.isDocumentOpen {
-                HexEditorView(viewModel: viewModel)
+            if workspace.hasOpenPanes {
+                WorkspaceView(workspace: workspace)
             } else {
-                EmptyStateView(onOpen: viewModel.openFilePanel)
+                EmptyStateView(onOpen: workspace.openFilePanel)
             }
         }
         .frame(minWidth: 720, minHeight: 480)
-        .navigationTitle(viewModel.windowTitle)
+        .navigationTitle(workspace.windowTitle)
         .toolbarRole(.editor)
         .onAppear {
             syncEncodingFromStorage()
@@ -27,27 +27,29 @@ struct ContentView: View {
         .onChange(of: storedEncoding) { _, _ in
             syncEncodingFromStorage()
         }
-        .onChange(of: viewModel.textEncoding) { _, newValue in
-            storedEncoding = newValue.rawValue
+        .onChange(of: workspace.activePane?.textEncoding) { _, newValue in
+            if let newValue {
+                storedEncoding = newValue.rawValue
+            }
         }
         .onDrop(of: [.fileURL], isTargeted: nil, perform: handleDrop)
         .alert(
             String(localized: "Error"),
             isPresented: Binding(
-                get: { viewModel.showError },
-                set: { viewModel.showError = $0 }
+                get: { workspace.showError },
+                set: { workspace.showError = $0 }
             )
         ) {
             Button(String(localized: "OK"), role: .cancel) {}
         } message: {
-            Text(viewModel.errorMessage ?? "")
+            Text(workspace.errorMessage ?? "")
         }
     }
 
     private func syncEncodingFromStorage() {
         let mode = TextEncodingMode(rawValue: storedEncoding) ?? .ascii
-        if viewModel.textEncoding != mode {
-            viewModel.textEncoding = mode
+        if let pane = workspace.activePane, pane.textEncoding != mode {
+            pane.textEncoding = mode
         }
     }
 
@@ -60,7 +62,7 @@ struct ContentView: View {
                 return
             }
             Task { @MainActor in
-                viewModel.openFile(from: url)
+                workspace.openFile(from: url)
             }
         }
         return true
@@ -68,5 +70,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(viewModel: HexEditorViewModel())
+    ContentView(workspace: WorkspaceViewModel())
 }

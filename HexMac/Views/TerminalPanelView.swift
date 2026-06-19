@@ -6,8 +6,54 @@
 import SwiftUI
 
 struct TerminalPanelView: View {
-    @Bindable var viewModel: HexEditorViewModel
+    var pane: DocumentPaneViewModel?
+
+    var body: some View {
+        if let pane {
+            TerminalPanelBoundView(pane: pane)
+        } else {
+            TerminalPanelEmptyView()
+        }
+    }
+}
+
+private struct TerminalPanelBoundView: View {
+    @Bindable var pane: DocumentPaneViewModel
     @State private var commandInput = ""
+
+    var body: some View {
+        TerminalPanelContent(
+            history: pane.terminalHistory,
+            commandInput: $commandInput,
+            isEnabled: true,
+            onSubmit: {
+                let command = commandInput
+                commandInput = ""
+                guard !command.isEmpty else { return }
+                pane.executeTerminalCommand(command)
+            }
+        )
+    }
+}
+
+private struct TerminalPanelEmptyView: View {
+    @State private var commandInput = ""
+
+    var body: some View {
+        TerminalPanelContent(
+            history: [],
+            commandInput: $commandInput,
+            isEnabled: false,
+            onSubmit: {}
+        )
+    }
+}
+
+private struct TerminalPanelContent: View {
+    let history: [TerminalLine]
+    @Binding var commandInput: String
+    let isEnabled: Bool
+    let onSubmit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,7 +70,7 @@ struct TerminalPanelView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(viewModel.terminalHistory) { line in
+                        ForEach(history) { line in
                             terminalLineView(line)
                                 .id(line.id)
                         }
@@ -35,8 +81,8 @@ struct TerminalPanelView: View {
                 }
                 .frame(maxHeight: .infinity)
                 .scrollIndicators(.visible)
-                .onChange(of: viewModel.terminalHistory.count) { _, _ in
-                    if let last = viewModel.terminalHistory.last {
+                .onChange(of: history.count) { _, _ in
+                    if let last = history.last {
                         withAnimation {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
@@ -54,7 +100,8 @@ struct TerminalPanelView: View {
                 TextField(String(localized: "Enter command"), text: $commandInput)
                     .font(.callout.monospaced())
                     .textFieldStyle(.plain)
-                    .onSubmit(submitCommand)
+                    .disabled(!isEnabled)
+                    .onSubmit(onSubmit)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -82,16 +129,9 @@ struct TerminalPanelView: View {
                 .textSelection(.enabled)
         }
     }
-
-    private func submitCommand() {
-        let command = commandInput
-        commandInput = ""
-        guard !command.isEmpty else { return }
-        viewModel.executeTerminalCommand(command)
-    }
 }
 
 #Preview {
-    TerminalPanelView(viewModel: HexEditorViewModel())
+    TerminalPanelView(pane: DocumentPaneViewModel())
         .frame(width: 520, height: 92)
 }
