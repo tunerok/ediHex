@@ -15,6 +15,9 @@ struct HexGridView: View {
     let scrollTargetOffset: Int?
     let editingHexText: String
     let textEncoding: TextEncodingMode
+    let isReadOnly: Bool
+    let linkedScrollRow: Binding<Int?>?
+    let onVisibleRowChanged: ((Int) -> Void)?
     let highlightColor: (Int) -> HighlightColor?
     let rowBytes: (Int) -> [UInt8]
     let onBeginSelection: (Int, Bool) -> Void
@@ -33,6 +36,72 @@ struct HexGridView: View {
     let onSaveSelectionAsBinary: () -> Void
     let onSaveSelectionAsHex: () -> Void
     let onScrollTargetHandled: () -> Void
+
+    @State private var isApplyingLinkedScroll = false
+
+    init(
+        rowCount: Int,
+        fileSize: Int,
+        bytesPerRow: Int,
+        dataRevision: Int,
+        selection: HexSelection?,
+        editingOffset: Int?,
+        scrollTargetOffset: Int?,
+        editingHexText: String,
+        textEncoding: TextEncodingMode,
+        isReadOnly: Bool = false,
+        linkedScrollRow: Binding<Int?>? = nil,
+        onVisibleRowChanged: ((Int) -> Void)? = nil,
+        highlightColor: @escaping (Int) -> HighlightColor?,
+        rowBytes: @escaping (Int) -> [UInt8],
+        onBeginSelection: @escaping (Int, Bool) -> Void,
+        onUpdateSelection: @escaping (Int) -> Void,
+        onEndSelection: @escaping (Int) -> Void,
+        onHexDigit: @escaping (Character) -> Void,
+        onBackspace: @escaping () -> Void,
+        onCancelEdit: @escaping () -> Void,
+        onAddHighlight: @escaping (HighlightColor) -> Void,
+        onRemoveHighlight: @escaping (Int) -> Void,
+        onCopySelection: @escaping () -> Void,
+        onClearSelection: @escaping () -> Void,
+        onCalculateCRC: @escaping () -> Void,
+        onCalculateHash: @escaping () -> Void,
+        onShowBinary: @escaping () -> Void,
+        onSaveSelectionAsBinary: @escaping () -> Void,
+        onSaveSelectionAsHex: @escaping () -> Void,
+        onScrollTargetHandled: @escaping () -> Void
+    ) {
+        self.rowCount = rowCount
+        self.fileSize = fileSize
+        self.bytesPerRow = bytesPerRow
+        self.dataRevision = dataRevision
+        self.selection = selection
+        self.editingOffset = editingOffset
+        self.scrollTargetOffset = scrollTargetOffset
+        self.editingHexText = editingHexText
+        self.textEncoding = textEncoding
+        self.isReadOnly = isReadOnly
+        self.linkedScrollRow = linkedScrollRow
+        self.onVisibleRowChanged = onVisibleRowChanged
+        self.highlightColor = highlightColor
+        self.rowBytes = rowBytes
+        self.onBeginSelection = onBeginSelection
+        self.onUpdateSelection = onUpdateSelection
+        self.onEndSelection = onEndSelection
+        self.onHexDigit = onHexDigit
+        self.onBackspace = onBackspace
+        self.onCancelEdit = onCancelEdit
+        self.onAddHighlight = onAddHighlight
+        self.onRemoveHighlight = onRemoveHighlight
+        self.onCopySelection = onCopySelection
+        self.onClearSelection = onClearSelection
+        self.onCalculateCRC = onCalculateCRC
+        self.onCalculateHash = onCalculateHash
+        self.onShowBinary = onShowBinary
+        self.onSaveSelectionAsBinary = onSaveSelectionAsBinary
+        self.onSaveSelectionAsHex = onSaveSelectionAsHex
+        self.onScrollTargetHandled = onScrollTargetHandled
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -67,6 +136,7 @@ struct HexGridView: View {
                                     bytesPerRow: bytesPerRow,
                                     editingOffset: editingOffset,
                                     selection: selection,
+                                    isReadOnly: isReadOnly,
                                     onBeginSelection: onBeginSelection,
                                     onUpdateSelection: onUpdateSelection,
                                     onEndSelection: onEndSelection,
@@ -87,6 +157,15 @@ struct HexGridView: View {
                             }
                         }
                         .frame(height: verticalScrollHeight(in: geometry))
+                        .onScrollGeometryChange(for: Int.self) { geometry in
+                            let offsetY = geometry.contentOffset.y + geometry.contentInsets.top
+                            guard rowCount > 0 else { return 0 }
+                            let row = min(rowCount - 1, max(0, Int(offsetY / HexGridLayout.rowHeight)))
+                            return row
+                        } action: { _, row in
+                            guard !isApplyingLinkedScroll else { return }
+                            onVisibleRowChanged?(row)
+                        }
                         .onChange(of: scrollTargetOffset) { _, target in
                             guard let target, bytesPerRow > 0 else { return }
                             let rowIndex = target / bytesPerRow
@@ -94,6 +173,14 @@ struct HexGridView: View {
                                 proxy.scrollTo(rowIndex, anchor: .center)
                             }
                             onScrollTargetHandled()
+                        }
+                        .onChange(of: linkedScrollRow?.wrappedValue) { _, row in
+                            guard let row else { return }
+                            isApplyingLinkedScroll = true
+                            proxy.scrollTo(row, anchor: .top)
+                            DispatchQueue.main.async {
+                                isApplyingLinkedScroll = false
+                            }
                         }
                     }
                 }

@@ -70,15 +70,22 @@ struct EditorTabBarView: View {
             workspace.activatePane(id: pane.id)
         }
         .contextMenu {
+            Button(String(localized: "Compare with…")) {
+                workspace.beginCompare(with: pane.id)
+            }
+            .disabled(!pane.isDocumentOpen || pane.isComparisonPane)
+
+            Divider()
+
             Button(String(localized: "Split Right")) {
                 workspace.splitPane(id: pane.id, axis: .horizontal)
             }
-            .disabled(!pane.isDocumentOpen)
+            .disabled(!pane.isDocumentOpen || pane.isComparisonPane)
 
             Button(String(localized: "Split Down")) {
                 workspace.splitPane(id: pane.id, axis: .vertical)
             }
-            .disabled(!pane.isDocumentOpen)
+            .disabled(!pane.isDocumentOpen || pane.isComparisonPane)
 
             Divider()
 

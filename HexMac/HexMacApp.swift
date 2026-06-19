@@ -205,6 +205,12 @@ struct HexMacApp: App {
 
             Divider()
 
+            Button(String(localized: "Compare…")) {
+                workspace.startCompare()
+            }
+
+            Divider()
+
             Button(String(localized: "Calculate CRC…")) {
                 workspace.openCRCSheet()
             }

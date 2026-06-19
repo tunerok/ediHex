@@ -67,6 +67,13 @@ struct WorkspaceView: View {
                 }
             }
         }
+        .sheet(isPresented: $workspace.showComparePicker) {
+            CompareFilePickerView(
+                workspace: workspace,
+                panes: workspace.openDocumentPanes(),
+                presetLeftPaneID: workspace.comparePickerPresetLeftPaneID
+            )
+        }
         .confirmationDialog(
             String(localized: "Fill selection with"),
             isPresented: activePaneBinding(\.showFillDialog),
@@ -160,7 +167,7 @@ struct WorkspaceView: View {
                 }
                 .layoutPriority(1)
 
-                if let pane = workspace.activePane {
+                if let pane = workspace.activePane, !pane.isComparisonPane {
                     InspectorPanelView(
                         selection: pane.selection,
                         bytes: inspectorBytes(for: pane),

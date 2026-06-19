@@ -26,7 +26,7 @@ private struct TerminalPanelBoundView: View {
         TerminalPanelContent(
             history: pane.terminalHistory,
             commandInput: $commandInput,
-            isEnabled: true,
+            isEnabled: !pane.isComparisonPane,
             onSubmit: {
                 let command = commandInput
                 commandInput = ""

@@ -27,6 +27,9 @@ final class WorkspaceViewModel {
     var errorMessage: String?
     var showError = false
 
+    var showComparePicker = false
+    var comparePickerPresetLeftPaneID: UUID?
+
     var hasOpenPanes: Bool {
         !allPanes().isEmpty
     }
@@ -481,6 +484,86 @@ final class WorkspaceViewModel {
 
     func openFindSheet() {
         activePane?.openFindSheet()
+    }
+
+    // MARK: - Compare
+
+    func startCompare() {
+        let panes = openDocumentPanes()
+        switch panes.count {
+        case 0:
+            pickTwoFilesForCompare()
+        case 1:
+            guard let leftURL = panes[0].document?.url else { return }
+            pickSecondFileAndCompare(left: leftURL)
+        default:
+            comparePickerPresetLeftPaneID = panes.first { $0.id == activePaneID }?.id ?? panes[0].id
+            showComparePicker = true
+        }
+    }
+
+    func beginCompare(with sourcePaneID: UUID) {
+        guard let sourcePane = findPane(id: sourcePaneID),
+              sourcePane.document?.url != nil else { return }
+
+        let others = openDocumentPanes().filter { $0.id != sourcePaneID }
+        if others.isEmpty {
+            guard let leftURL = sourcePane.document?.url else { return }
+            pickSecondFileAndCompare(left: leftURL)
+        } else {
+            comparePickerPresetLeftPaneID = sourcePaneID
+            showComparePicker = true
+        }
+    }
+
+    func openDocumentPanes() -> [DocumentPaneViewModel] {
+        allPanes().filter { $0.isDocumentOpen && !$0.isComparisonPane }
+    }
+
+    func confirmCompare(leftPaneID: UUID, rightPaneID: UUID) {
+        guard leftPaneID != rightPaneID else {
+            presentError(String(localized: "Cannot compare a file with itself."))
+            return
+        }
+        guard let leftURL = findPane(id: leftPaneID)?.document?.url,
+              let rightURL = findPane(id: rightPaneID)?.document?.url else { return }
+        cancelComparePicker()
+        openComparison(left: leftURL, right: rightURL)
+    }
+
+    func cancelComparePicker() {
+        showComparePicker = false
+        comparePickerPresetLeftPaneID = nil
+    }
+
+    func openComparison(left: URL, right: URL) {
+        let normalizedLeft = left.standardizedFileURL
+        let normalizedRight = right.standardizedFileURL
+        guard normalizedLeft != normalizedRight else {
+            presentError(String(localized: "Cannot compare a file with itself."))
+            return
+        }
+
+        let pane = DocumentPaneViewModel()
+        pane.loadComparison(left: normalizedLeft, right: normalizedRight)
+        guard pane.isComparisonPane else {
+            if let errorMessage = pane.errorMessage {
+                presentError(errorMessage)
+            }
+            return
+        }
+        addPane(pane, activate: true)
+    }
+
+    private func pickTwoFilesForCompare() {
+        guard let firstURL = FileAccessService.openFilePanel() else { return }
+        guard let secondURL = FileAccessService.openFilePanel() else { return }
+        openComparison(left: firstURL, right: secondURL)
+    }
+
+    private func pickSecondFileAndCompare(left: URL) {
+        guard let rightURL = FileAccessService.openFilePanel() else { return }
+        openComparison(left: left, right: rightURL)
     }
 
     func presentError(_ message: String) {

@@ -13,7 +13,11 @@ final class DocumentPaneViewModel: Identifiable {
     let id = UUID()
 
     private(set) var document: HexDocument?
+    private(set) var paneMode: PaneMode = .document
     var selection: HexSelection?
+    var comparisonLeftSelection: HexSelection?
+    var comparisonRightSelection: HexSelection?
+    private(set) var comparisonActiveSide: CompareSide = .left
     var textEncoding: TextEncodingMode = .ascii
     var bytesPerRow: BytesPerRowSetting = .sixteen
     var highlights: [HexHighlight] = []
@@ -43,6 +47,9 @@ final class DocumentPaneViewModel: Identifiable {
     var errorMessage: String?
     var showError = false
     private(set) var dataRevision = 0
+    private(set) var comparisonDiffMap: CompareDiffMap?
+    private(set) var isDiffMapLoading = false
+    @ObservationIgnored private var comparisonDiffMapGeneration = 0
 
     private let undoManager = UndoManager()
 
@@ -50,8 +57,18 @@ final class DocumentPaneViewModel: Identifiable {
         document != nil
     }
 
+    var isComparisonPane: Bool {
+        if case .comparison = paneMode { return true }
+        return false
+    }
+
     var fileSize: Int {
-        document?.fileSize ?? 0
+        switch paneMode {
+        case .document:
+            return document?.fileSize ?? 0
+        case .comparison(let left, let right):
+            return max(left.fileSize, right.fileSize)
+        }
     }
 
     var rowCount: Int {
@@ -63,6 +80,9 @@ final class DocumentPaneViewModel: Identifiable {
     }
 
     var displayTitle: String {
+        if isComparisonPane {
+            return String(localized: "Comparison")
+        }
         guard let document else {
             return String(localized: "Untitled")
         }
@@ -73,6 +93,9 @@ final class DocumentPaneViewModel: Identifiable {
     }
 
     var windowTitle: String {
+        if isComparisonPane {
+            return String(localized: "Comparison")
+        }
         guard let document else {
             return String(localized: "HexMac")
         }
@@ -82,8 +105,21 @@ final class DocumentPaneViewModel: Identifiable {
         return document.displayName
     }
 
+    var comparisonLeftName: String {
+        guard case .comparison(let left, _) = paneMode else { return "" }
+        return left.displayName
+    }
+
+    var comparisonRightName: String {
+        guard case .comparison(_, let right) = paneMode else { return "" }
+        return right.displayName
+    }
+
     var selectedOffset: Int? {
-        selection?.active
+        if isComparisonPane {
+            return comparisonSelection(for: comparisonActiveSide)?.active
+        }
+        return selection?.active
     }
 
     var canSave: Bool {
@@ -96,8 +132,10 @@ final class DocumentPaneViewModel: Identifiable {
 
     func loadFile(from url: URL) {
         do {
+            resetComparisonMode()
             document?.close()
             document = try HexDocument.open(url: url, readOnly: false)
+            paneMode = .document
             selection = fileSize > 0 ? .single(at: 0) : nil
             highlights = []
             scrollTargetOffset = nil
@@ -113,9 +151,111 @@ final class DocumentPaneViewModel: Identifiable {
         }
     }
 
+    func loadComparison(left leftURL: URL, right rightURL: URL) {
+        do {
+            resetComparisonMode()
+            document?.close()
+            document = nil
+            let left = try HexDocument.open(url: leftURL, readOnly: true)
+            let right = try HexDocument.open(url: rightURL, readOnly: true)
+            paneMode = .comparison(left: left, right: right)
+            selection = nil
+            comparisonLeftSelection = fileSize > 0 ? .single(at: 0) : nil
+            comparisonRightSelection = fileSize > 0 ? .single(at: 0) : nil
+            comparisonActiveSide = .left
+            highlights = []
+            scrollTargetOffset = nil
+            terminalHistory = []
+            findSession = nil
+            editingOffset = nil
+            editingHexText = ""
+            editingAppendedByte = false
+            undoManager.removeAllActions()
+            bumpDataRevision()
+            rebuildComparisonDiffMap()
+        } catch {
+            presentError(error.localizedDescription)
+        }
+    }
+
+    func rebuildComparisonDiffMap(bucketCount: Int = ByteCompareService.defaultBucketCount) {
+        guard case .comparison(let left, let right) = paneMode else {
+            comparisonDiffMap = nil
+            isDiffMapLoading = false
+            return
+        }
+
+        comparisonDiffMapGeneration &+= 1
+        let generation = comparisonDiffMapGeneration
+        isDiffMapLoading = true
+        comparisonDiffMap = nil
+
+        let leftFile = left.mappedFile
+        let rightFile = right.mappedFile
+        let leftSize = left.fileSize
+        let rightSize = right.fileSize
+
+        Task.detached {
+            let map = ByteCompareService.buildDiffMap(
+                leftSize: leftSize,
+                rightSize: rightSize,
+                leftByte: { offset in try? leftFile.byte(at: offset) },
+                rightByte: { offset in try? rightFile.byte(at: offset) },
+                bucketCount: bucketCount
+            )
+
+            await MainActor.run {
+                guard generation == self.comparisonDiffMapGeneration,
+                      case .comparison = self.paneMode else { return }
+                self.comparisonDiffMap = map
+                self.isDiffMapLoading = false
+            }
+        }
+    }
+
+    func exportComparisonDiff(format: CompareDiffExportFormat) {
+        guard case .comparison(let left, let right) = paneMode else { return }
+
+        let leftBase = (left.displayName as NSString).deletingPathExtension
+        let rightBase = (right.displayName as NSString).deletingPathExtension
+        let suggestedName = "comparison_\(leftBase)_vs_\(rightBase).\(format.fileExtension)"
+
+        guard let url = FileAccessService.saveFilePanel(
+            suggestedName: suggestedName,
+            fileExtension: format.fileExtension
+        ) else { return }
+
+        let entries = ByteCompareService.collectDiffEntries(
+            leftSize: left.fileSize,
+            rightSize: right.fileSize,
+            leftByte: { offset in try? left.mappedFile.byte(at: offset) },
+            rightByte: { offset in try? right.mappedFile.byte(at: offset) }
+        )
+
+        let content: String
+        switch format {
+        case .text:
+            content = ByteCompareService.formatTextReport(
+                entries: entries,
+                leftName: left.displayName,
+                rightName: right.displayName
+            )
+        case .csv:
+            content = ByteCompareService.formatCSV(entries: entries)
+        }
+
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            presentError(error.localizedDescription)
+        }
+    }
+
     func close() {
+        resetComparisonMode()
         document?.close()
         document = nil
+        paneMode = .document
         selection = nil
         highlights = []
         scrollTargetOffset = nil
@@ -175,6 +315,104 @@ final class DocumentPaneViewModel: Identifiable {
 
     func highlight(at offset: Int) -> HighlightColor? {
         highlights.first { $0.contains(offset) }?.color
+    }
+
+    func diffHighlight(at offset: Int, side: CompareSide) -> HighlightColor? {
+        guard case .comparison(let left, let right) = paneMode else { return nil }
+        let leftByte = comparisonByte(at: offset, document: left)
+        let rightByte = comparisonByte(at: offset, document: right)
+        return ByteCompareService.highlightColor(
+            at: offset,
+            side: side,
+            leftSize: left.fileSize,
+            rightSize: right.fileSize,
+            leftByte: leftByte,
+            rightByte: rightByte
+        )
+    }
+
+    func comparisonSelection(for side: CompareSide) -> HexSelection? {
+        switch side {
+        case .left:
+            comparisonLeftSelection
+        case .right:
+            comparisonRightSelection
+        }
+    }
+
+    func beginComparisonSelection(at offset: Int, side: CompareSide, extending: Bool = false) {
+        guard offset >= 0, offset < fileSize else { return }
+        comparisonActiveSide = side
+
+        let current = comparisonSelection(for: side)
+        let newSelection: HexSelection
+        if extending, let current {
+            newSelection = HexSelection(anchor: current.anchor, active: offset)
+        } else {
+            newSelection = .single(at: offset)
+        }
+        setComparisonSelection(newSelection, for: side)
+    }
+
+    func updateComparisonSelection(to offset: Int, side: CompareSide) {
+        guard offset >= 0, offset < fileSize else { return }
+        comparisonActiveSide = side
+
+        guard let current = comparisonSelection(for: side) else {
+            setComparisonSelection(.single(at: offset), for: side)
+            return
+        }
+        setComparisonSelection(HexSelection(anchor: current.anchor, active: offset), for: side)
+    }
+
+    func endComparisonSelection(at offset: Int, side: CompareSide) {
+        updateComparisonSelection(to: offset, side: side)
+    }
+
+    func comparisonRowBytes(for rowIndex: Int, side: CompareSide) -> [UInt8] {
+        guard case .comparison(let left, let right) = paneMode else { return [] }
+        let doc = side == .left ? left : right
+        let offset = HexFormatter.rowOffset(for: rowIndex, bytesPerRow: bytesPerRow.rawValue)
+        let count = HexFormatter.byteCount(
+            forRow: rowIndex,
+            fileSize: fileSize,
+            bytesPerRow: bytesPerRow.rawValue
+        )
+        guard count > 0 else { return [] }
+        let clampedEnd = min(offset + count, doc.fileSize)
+        guard offset < clampedEnd else { return [] }
+        return (try? doc.mappedFile.bytes(in: offset..<clampedEnd)) ?? []
+    }
+
+    func comparisonBytes(in range: Range<Int>, side: CompareSide) -> [UInt8] {
+        guard case .comparison(let left, let right) = paneMode else { return [] }
+        let doc = side == .left ? left : right
+        let clamped = max(0, range.lowerBound)..<min(range.upperBound, doc.fileSize)
+        guard clamped.lowerBound < clamped.upperBound else { return [] }
+        return (try? doc.mappedFile.bytes(in: clamped)) ?? []
+    }
+
+    func copyComparisonSelection(side: CompareSide) {
+        guard let selection = comparisonSelection(for: side) else { return }
+        let bytes = comparisonBytes(in: selection.start..<(selection.end + 1), side: side)
+        guard !bytes.isEmpty else { return }
+        let hex = bytes.map { HexFormatter.hexPair(for: $0) }.joined(separator: " ")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(hex, forType: .string)
+    }
+
+    private func comparisonByte(at offset: Int, document: HexDocument) -> UInt8? {
+        guard offset >= 0, offset < document.fileSize else { return nil }
+        return try? document.mappedFile.byte(at: offset)
+    }
+
+    private func setComparisonSelection(_ selection: HexSelection, for side: CompareSide) {
+        switch side {
+        case .left:
+            comparisonLeftSelection = selection
+        case .right:
+            comparisonRightSelection = selection
+        }
     }
 
     func addHighlight(color: HighlightColor) {
@@ -757,6 +995,19 @@ final class DocumentPaneViewModel: Identifiable {
             }
         }
         return data
+    }
+
+    private func resetComparisonMode() {
+        if case .comparison(let left, let right) = paneMode {
+            left.close()
+            right.close()
+        }
+        comparisonLeftSelection = nil
+        comparisonRightSelection = nil
+        comparisonActiveSide = .left
+        comparisonDiffMap = nil
+        isDiffMapLoading = false
+        comparisonDiffMapGeneration &+= 1
     }
 
     private func bumpDataRevision() {

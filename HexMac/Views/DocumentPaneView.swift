@@ -11,7 +11,9 @@ struct DocumentPaneView: View {
 
     var body: some View {
         Group {
-            if pane.rowCount == 0 {
+            if pane.isComparisonPane {
+                ComparePaneView(workspace: workspace, pane: pane)
+            } else if pane.rowCount == 0 {
                 ContentUnavailableView(
                     String(localized: "Empty File"),
                     systemImage: "doc",

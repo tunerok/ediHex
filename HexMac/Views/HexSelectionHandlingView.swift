@@ -12,6 +12,7 @@ struct HexSelectionHandlingView: NSViewRepresentable {
     let bytesPerRow: Int
     let editingOffset: Int?
     let selection: HexSelection?
+    let isReadOnly: Bool
     let onBeginSelection: (Int, Bool) -> Void
     let onUpdateSelection: (Int) -> Void
     let onEndSelection: (Int) -> Void
@@ -28,6 +29,54 @@ struct HexSelectionHandlingView: NSViewRepresentable {
     let onSaveSelectionAsBinary: () -> Void
     let onSaveSelectionAsHex: () -> Void
     let highlightColor: (Int) -> HighlightColor?
+
+    init(
+        rowCount: Int,
+        fileSize: Int,
+        bytesPerRow: Int,
+        editingOffset: Int?,
+        selection: HexSelection?,
+        isReadOnly: Bool = false,
+        onBeginSelection: @escaping (Int, Bool) -> Void,
+        onUpdateSelection: @escaping (Int) -> Void,
+        onEndSelection: @escaping (Int) -> Void,
+        onHexDigit: @escaping (Character) -> Void,
+        onBackspace: @escaping () -> Void,
+        onCancelEdit: @escaping () -> Void,
+        onAddHighlight: @escaping (HighlightColor) -> Void,
+        onRemoveHighlight: @escaping (Int) -> Void,
+        onCopySelection: @escaping () -> Void,
+        onClearSelection: @escaping () -> Void,
+        onCalculateCRC: @escaping () -> Void,
+        onCalculateHash: @escaping () -> Void,
+        onShowBinary: @escaping () -> Void,
+        onSaveSelectionAsBinary: @escaping () -> Void,
+        onSaveSelectionAsHex: @escaping () -> Void,
+        highlightColor: @escaping (Int) -> HighlightColor?
+    ) {
+        self.rowCount = rowCount
+        self.fileSize = fileSize
+        self.bytesPerRow = bytesPerRow
+        self.editingOffset = editingOffset
+        self.selection = selection
+        self.isReadOnly = isReadOnly
+        self.onBeginSelection = onBeginSelection
+        self.onUpdateSelection = onUpdateSelection
+        self.onEndSelection = onEndSelection
+        self.onHexDigit = onHexDigit
+        self.onBackspace = onBackspace
+        self.onCancelEdit = onCancelEdit
+        self.onAddHighlight = onAddHighlight
+        self.onRemoveHighlight = onRemoveHighlight
+        self.onCopySelection = onCopySelection
+        self.onClearSelection = onClearSelection
+        self.onCalculateCRC = onCalculateCRC
+        self.onCalculateHash = onCalculateHash
+        self.onShowBinary = onShowBinary
+        self.onSaveSelectionAsBinary = onSaveSelectionAsBinary
+        self.onSaveSelectionAsHex = onSaveSelectionAsHex
+        self.highlightColor = highlightColor
+    }
 
     func makeNSView(context: Context) -> HexSelectionMouseView {
         let view = HexSelectionMouseView()
@@ -110,98 +159,104 @@ struct HexSelectionHandlingView: NSViewRepresentable {
                 copyItem.target = self
                 menu.addItem(copyItem)
 
-                let clearItem = NSMenuItem(
-                    title: String(localized: "Clear…"),
-                    action: #selector(clearSelection(_:)),
-                    keyEquivalent: ""
-                )
-                clearItem.target = self
-                menu.addItem(clearItem)
+                if !parent.isReadOnly {
+                    let clearItem = NSMenuItem(
+                        title: String(localized: "Clear…"),
+                        action: #selector(clearSelection(_:)),
+                        keyEquivalent: ""
+                    )
+                    clearItem.target = self
+                    menu.addItem(clearItem)
 
-                let crcItem = NSMenuItem(
-                    title: String(localized: "Calculate CRC…"),
-                    action: #selector(calculateCRC(_:)),
-                    keyEquivalent: ""
-                )
-                crcItem.target = self
-                menu.addItem(crcItem)
+                    let crcItem = NSMenuItem(
+                        title: String(localized: "Calculate CRC…"),
+                        action: #selector(calculateCRC(_:)),
+                        keyEquivalent: ""
+                    )
+                    crcItem.target = self
+                    menu.addItem(crcItem)
 
-                let hashItem = NSMenuItem(
-                    title: String(localized: "Calculate Hash…"),
-                    action: #selector(calculateHash(_:)),
-                    keyEquivalent: ""
-                )
-                hashItem.target = self
-                menu.addItem(hashItem)
+                    let hashItem = NSMenuItem(
+                        title: String(localized: "Calculate Hash…"),
+                        action: #selector(calculateHash(_:)),
+                        keyEquivalent: ""
+                    )
+                    hashItem.target = self
+                    menu.addItem(hashItem)
 
-                let binaryItem = NSMenuItem(
-                    title: String(localized: "Show as Binary…"),
-                    action: #selector(showBinary(_:)),
-                    keyEquivalent: ""
-                )
-                binaryItem.target = self
-                menu.addItem(binaryItem)
+                    let binaryItem = NSMenuItem(
+                        title: String(localized: "Show as Binary…"),
+                        action: #selector(showBinary(_:)),
+                        keyEquivalent: ""
+                    )
+                    binaryItem.target = self
+                    menu.addItem(binaryItem)
 
-                let saveMenu = NSMenuItem(
-                    title: String(localized: "Save Selection As…"),
+                    let saveMenu = NSMenuItem(
+                        title: String(localized: "Save Selection As…"),
+                        action: nil,
+                        keyEquivalent: ""
+                    )
+                    let saveSubmenu = NSMenu()
+
+                    let saveBinaryItem = NSMenuItem(
+                        title: String(localized: "Binary (.bin)"),
+                        action: #selector(saveSelectionAsBinary(_:)),
+                        keyEquivalent: ""
+                    )
+                    saveBinaryItem.target = self
+                    saveSubmenu.addItem(saveBinaryItem)
+
+                    let saveHexItem = NSMenuItem(
+                        title: String(localized: "Hex (.hex)"),
+                        action: #selector(saveSelectionAsHex(_:)),
+                        keyEquivalent: ""
+                    )
+                    saveHexItem.target = self
+                    saveSubmenu.addItem(saveHexItem)
+
+                    saveMenu.submenu = saveSubmenu
+                    menu.addItem(saveMenu)
+
+                    menu.addItem(.separator())
+                }
+            }
+
+            if !parent.isReadOnly {
+                let highlightMenu = NSMenuItem(
+                    title: String(localized: "Highlight"),
                     action: nil,
                     keyEquivalent: ""
                 )
-                let saveSubmenu = NSMenu()
+                let submenu = NSMenu()
 
-                let saveBinaryItem = NSMenuItem(
-                    title: String(localized: "Binary (.bin)"),
-                    action: #selector(saveSelectionAsBinary(_:)),
-                    keyEquivalent: ""
-                )
-                saveBinaryItem.target = self
-                saveSubmenu.addItem(saveBinaryItem)
+                for color in HighlightColor.allCases {
+                    let item = NSMenuItem(
+                        title: color.label,
+                        action: #selector(highlightColorSelected(_:)),
+                        keyEquivalent: ""
+                    )
+                    item.representedObject = color
+                    item.target = self
+                    submenu.addItem(item)
+                }
 
-                let saveHexItem = NSMenuItem(
-                    title: String(localized: "Hex (.hex)"),
-                    action: #selector(saveSelectionAsHex(_:)),
-                    keyEquivalent: ""
-                )
-                saveHexItem.target = self
-                saveSubmenu.addItem(saveHexItem)
+                highlightMenu.submenu = submenu
+                menu.addItem(highlightMenu)
 
-                saveMenu.submenu = saveSubmenu
-                menu.addItem(saveMenu)
-
-                menu.addItem(.separator())
+                if parent.highlightColor(offset) != nil {
+                    let removeItem = NSMenuItem(
+                        title: String(localized: "Remove Highlight"),
+                        action: #selector(removeHighlightSelected(_:)),
+                        keyEquivalent: ""
+                    )
+                    removeItem.representedObject = offset
+                    removeItem.target = self
+                    menu.addItem(removeItem)
+                }
             }
 
-            let highlightMenu = NSMenuItem(
-                title: String(localized: "Highlight"),
-                action: nil,
-                keyEquivalent: ""
-            )
-            let submenu = NSMenu()
-
-            for color in HighlightColor.allCases {
-                let item = NSMenuItem(
-                    title: color.label,
-                    action: #selector(highlightColorSelected(_:)),
-                    keyEquivalent: ""
-                )
-                item.representedObject = color
-                item.target = self
-                submenu.addItem(item)
-            }
-
-            highlightMenu.submenu = submenu
-            menu.addItem(highlightMenu)
-
-            if parent.highlightColor(offset) != nil {
-                let removeItem = NSMenuItem(
-                    title: String(localized: "Remove Highlight"),
-                    action: #selector(removeHighlightSelected(_:)),
-                    keyEquivalent: ""
-                )
-                removeItem.representedObject = offset
-                removeItem.target = self
-                menu.addItem(removeItem)
-            }
+            guard !menu.items.isEmpty else { return }
 
             NSMenu.popUpContextMenu(menu, with: event, for: view)
         }
@@ -289,6 +344,11 @@ final class HexSelectionMouseView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard coordinator?.parent.isReadOnly != true else {
+            super.keyDown(with: event)
+            return
+        }
+
         switch event.keyCode {
         case 51:
             coordinator?.handleBackspace()
