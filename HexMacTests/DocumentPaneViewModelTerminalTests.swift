@@ -3,32 +3,51 @@
 //  HexMacTests
 //
 
-import XCTest
+import AppKit
+import Foundation
+import Testing
 @testable import HexMac
 
+@Suite(.serialized)
 @MainActor
-final class DocumentPaneViewModelTerminalTests: XCTestCase {
+struct DocumentPaneViewModelTerminalTests {
     private func makeTempFile(_ data: Data) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("HexMacVMTest-\(UUID().uuidString).bin")
-        try data.write(to: url)
+        try data.write(to: url, options: .atomic)
         return url
     }
 
-    func testGotoUpdatesSelectionAndHistory() throws {
-        let url = try makeTempFile(Data((0..<32).map { UInt8($0) }))
-        defer { try? FileManager.default.removeItem(at: url) }
-
+    private func makePaneWithFile(_ data: Data) throws -> (DocumentPaneViewModel, URL) {
+        ensureTestApplication()
+        let url = try makeTempFile(data)
         let pane = DocumentPaneViewModel()
         pane.loadFile(from: url)
-        pane.executeTerminalCommand("goto 0x10")
-
-        XCTAssertEqual(pane.selection?.start, 16)
-        XCTAssertEqual(pane.scrollTargetOffset, 16)
-        XCTAssertTrue(pane.terminalHistory.contains { $0.text.contains("→ 0x") })
+        #expect(pane.isDocumentOpen, "loadFile failed: \(pane.errorMessage ?? "unknown error")")
+        return (pane, url)
     }
 
-    func testTerminalIgnoredOnComparisonPane() throws {
+    private func ensureTestApplication() {
+        if NSApp == nil {
+            let app = NSApplication.shared
+            app.setActivationPolicy(.accessory)
+        }
+    }
+
+    @Test func gotoUpdatesSelectionAndHistory() throws {
+        let (pane, url) = try makePaneWithFile(Data((0..<32).map { UInt8($0) }))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        pane.executeTerminalCommand("goto 0x10")
+
+        #expect(pane.selection?.start == 16)
+        #expect(pane.scrollTargetOffset == 16)
+        let expectedOffset = HexFormatter.offsetString(for: 16)
+        #expect(pane.terminalHistory.contains { $0.text.contains("0x\(expectedOffset)") })
+    }
+
+    @Test func terminalIgnoredOnComparisonPane() throws {
+        ensureTestApplication()
         let leftURL = try makeTempFile(Data([1, 2, 3]))
         let rightURL = try makeTempFile(Data([1, 2, 4]))
         defer {
@@ -40,10 +59,11 @@ final class DocumentPaneViewModelTerminalTests: XCTestCase {
         pane.loadComparison(left: leftURL, right: rightURL)
         pane.executeTerminalCommand("goto 0")
 
-        XCTAssertTrue(pane.terminalHistory.isEmpty)
+        #expect(pane.terminalHistory.isEmpty)
     }
 
-    func testTerminalHistoryClearedOnLoadFile() throws {
+    @Test func terminalHistoryClearedOnLoadFile() throws {
+        ensureTestApplication()
         let firstURL = try makeTempFile(Data([0, 1, 2]))
         let secondURL = try makeTempFile(Data([3, 4, 5]))
         defer {
@@ -53,41 +73,40 @@ final class DocumentPaneViewModelTerminalTests: XCTestCase {
 
         let pane = DocumentPaneViewModel()
         pane.loadFile(from: firstURL)
+        #expect(pane.isDocumentOpen)
         pane.executeTerminalCommand("goto 0")
-        XCTAssertFalse(pane.terminalHistory.isEmpty)
+        #expect(!pane.terminalHistory.isEmpty)
 
         pane.loadFile(from: secondURL)
-        XCTAssertTrue(pane.terminalHistory.isEmpty)
+        #expect(pane.isDocumentOpen)
+        #expect(pane.terminalHistory.isEmpty)
     }
 
-    func testTerminalErrorAppendedToHistory() throws {
-        let url = try makeTempFile(Data([0, 1, 2]))
+    @Test func terminalErrorAppendedToHistory() throws {
+        let (pane, url) = try makePaneWithFile(Data([0, 1, 2]))
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let pane = DocumentPaneViewModel()
-        pane.loadFile(from: url)
         pane.executeTerminalCommand("not-a-command")
 
-        XCTAssertEqual(pane.terminalHistory.count, 2)
-        XCTAssertEqual(pane.terminalHistory[0].kind, .input)
-        XCTAssertEqual(pane.terminalHistory[1].kind, .error)
+        #expect(pane.terminalHistory.count == 2)
+        #expect(pane.terminalHistory[0].kind == .input)
+        #expect(pane.terminalHistory[1].kind == .error)
     }
 
-    func testSaveMarksDocumentClean() throws {
-        let url = try makeTempFile(Data([0, 1, 2, 3]))
+    @Test func saveMarksDocumentClean() throws {
+        let (pane, url) = try makePaneWithFile(Data([0, 1, 2, 3]))
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let pane = DocumentPaneViewModel()
-        pane.loadFile(from: url)
         pane.beginSelection(at: 0)
         pane.endSelection(at: 0)
         pane.fillSelection(with: 0xFF)
 
-        XCTAssertTrue(pane.isDirty)
+        #expect(pane.isDirty)
+        #expect(pane.selection != nil)
 
         pane.save()
 
-        XCTAssertFalse(pane.isDirty)
-        XCTAssertEqual(pane.byte(at: 0), 0xFF)
+        #expect(!pane.isDirty)
+        #expect(pane.byte(at: 0) == 0xFF)
     }
 }

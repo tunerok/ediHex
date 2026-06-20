@@ -23,8 +23,8 @@ final class CompareRowCacheTests: XCTestCase {
         )
 
         XCTAssertEqual(batch.count, 4)
-        XCTAssertEqual(batch[0]?.leftBytes, Array(0..<16))
-        XCTAssertEqual(batch[3]?.leftBytes, Array(48..<64))
+        XCTAssertEqual(batch[0]?.leftBytes, Array((0..<16).map(UInt8.init)))
+        XCTAssertEqual(batch[3]?.leftBytes, Array((48..<64).map(UInt8.init)))
     }
 
     func testRowZeroDiffSpansWhenBytesDiffer() {
