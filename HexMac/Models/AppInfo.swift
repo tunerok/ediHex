@@ -7,7 +7,7 @@ import Foundation
 
 enum AppInfo {
     static var version: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1b"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1"
     }
 
     static let name = "HexMac"

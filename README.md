@@ -1,4 +1,4 @@
-# HexMac **0.1b**
+# HexMac **0.1**
 
 ![CI](https://github.com/tunerok/hexmac/actions/workflows/ci.yml/badge.svg)
 
