@@ -62,6 +62,8 @@ open HexMac.xcodeproj
 
 In Xcode: select the **HexMac** scheme → **Run** (⌘R).
 
+Don't want to develop an app? Please check out the Releases section.
+
 ### Run tests
 
 ```bash
