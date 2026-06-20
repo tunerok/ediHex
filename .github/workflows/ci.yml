@@ -25,6 +25,7 @@ jobs:
             -scheme HexMac \
             -destination 'platform=macOS' \
             -resultBundlePath TestResults.xcresult \
+            -parallel-testing-worker-count 1 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY=-
 
