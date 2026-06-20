@@ -1,10 +1,10 @@
-# HexMac **0.1**
+# ediHex **0.1**
 
-![CI](https://github.com/tunerok/hexmac/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/tunerok/edihex/actions/workflows/ci.yml/badge.svg)
 
-[GitHub](https://github.com/tunerok/hexmac)
+[GitHub](https://github.com/tunerok/edihex)
 
-![HexMac hex editor](Img/2.png)
+![ediHex hex editor](Img/2.png)
 
 Native macOS hex editor for inspecting, editing, and analyzing binary files. Built with SwiftUI on a B+ tree byte array with file-backed slices — large files stay on disk while edits live in memory.
 
@@ -64,21 +64,21 @@ CI runs on `macos-15` with Xcode 26.
 ## Build & run
 
 ```bash
-git clone https://github.com/tunerok/hexmac.git
-cd hexmac
-open HexMac.xcodeproj
+git clone https://github.com/tunerok/edihex.git
+cd edihex
+open ediHex.xcodeproj
 ```
 
-In Xcode: select the **HexMac** scheme → **Run** (⌘R).
+In Xcode: select the **ediHex** scheme → **Run** (⌘R).
 
-Don't want to develop an app? Please check out the [Releases](https://github.com/tunerok/hexmac/releases) section.
+Don't want to develop an app? Please check out the [Releases](https://github.com/tunerok/edihex/releases) section.
 
 ### Run tests
 
 ```bash
 xcodebuild test \
-  -project HexMac.xcodeproj \
-  -scheme HexMac \
+  -project ediHex.xcodeproj \
+  -scheme ediHex \
   -destination 'platform=macOS'
 ```
 
@@ -102,8 +102,8 @@ Test coverage includes byte-array I/O, virtual scroll window, row loading and ca
 ## Project structure
 
 ```
-HexMac/
-├── HexMacApp.swift          # App entry point, menus, settings
+ediHex/
+├── ediHexApp.swift          # App entry point, menus, settings
 ├── ContentView.swift        # Root layout
 ├── Core/ByteArray/          # B+ tree, file/memory slices, chunked I/O, writer
 ├── Models/                  # Document, selection, CRC, find, highlight models
@@ -111,7 +111,7 @@ HexMac/
 ├── Views/                   # SwiftUI views (grid, compare, tools, terminal)
 └── Services/                # I/O, search, hash, CRC, scroll, compare, terminal
 
-HexMacTests/                 # Unit tests (13 suites)
+ediHexTests/                 # Unit tests (13 suites)
 ```
 
 ## Contributing
@@ -127,7 +127,7 @@ Issues and pull requests are welcome. Please keep changes focused and match the 
 
 [GNU General Public License v3.0](LICENSE) — Copyright © 2026 [tunerok](https://github.com/tunerok).
 
-HexMac is free software: you may redistribute and/or modify it under the terms of the GPL v3 or (at your option) any later version.
+ediHex is free software: you may redistribute and/or modify it under the terms of the GPL v3 or (at your option) any later version.
 
 ## Screenshots
 
