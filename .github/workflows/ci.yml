@@ -21,8 +21,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -project HexMac.xcodeproj \
-            -scheme HexMac \
+            -project ediHex.xcodeproj \
+            -scheme ediHex \
             -destination 'platform=macOS' \
             -resultBundlePath TestResults.xcresult \
             -parallel-testing-enabled NO \
