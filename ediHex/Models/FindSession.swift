@@ -6,6 +6,7 @@
 import Foundation
 
 struct FindSession: Equatable {
+    let queryText: String
     let pattern: [UInt8]
     let mode: FindPatternMode
     let entireFile: Bool
@@ -21,6 +22,38 @@ struct FindSession: Equatable {
     var currentMatch: Int? {
         guard currentIndex >= 0, currentIndex < matches.count else { return nil }
         return matches[currentIndex]
+    }
+
+    var parametersDescription: String {
+        let scope = entireFile
+            ? String(localized: "Entire file", comment: "Find scope label")
+            : String(localized: "From cursor", comment: "Find scope label")
+        let modeLabel = mode == .hex
+            ? String(localized: "Hex", comment: "Find mode label")
+            : String(localized: "ASCII", comment: "Find mode label")
+
+        if entireFile {
+            return "\(scope) · \(modeLabel)"
+        }
+
+        let directionLabel = direction == .down
+            ? String(localized: "Down", comment: "Find direction label")
+            : String(localized: "Up", comment: "Find direction label")
+        return "\(scope) · \(directionLabel) · \(modeLabel)"
+    }
+
+    var resultsSummary: String {
+        if hasMatches {
+            if isScanningComplete {
+                return String(localized: "\(matches.count) matches", comment: "Find result count")
+            }
+            return String(
+                localized: "\(matches.count) matches (scan stopped)",
+                comment: "Find result count after interrupted scan"
+            )
+        }
+
+        return String(localized: "Not found", comment: "Find result when no matches")
     }
 
     func statusText(isScanning: Bool, progress: Double) -> String? {

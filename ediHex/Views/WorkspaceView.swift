@@ -179,6 +179,9 @@ struct WorkspaceView: View {
                         bytes: inspectorBytes(for: pane),
                         selectedOffset: pane.selectedOffset,
                         highlights: pane.highlights,
+                        findSession: pane.findSession,
+                        canFindPrevious: pane.canFindPrevious,
+                        canFindNext: pane.canFindNext,
                         onAddHighlight: { color in
                             pane.addHighlight(color: color)
                         },
@@ -187,7 +190,10 @@ struct WorkspaceView: View {
                         },
                         onNavigateToHighlight: { highlight in
                             pane.navigateToHighlight(highlight)
-                        }
+                        },
+                        onFindPrevious: { _ = pane.findPreviousMatch() },
+                        onFindNext: { _ = pane.findNextMatch() },
+                        onClearFind: { pane.clearFindResults() }
                     )
                     .layoutPriority(0)
                 } else {
@@ -196,9 +202,15 @@ struct WorkspaceView: View {
                         bytes: [],
                         selectedOffset: nil,
                         highlights: [],
+                        findSession: nil,
+                        canFindPrevious: false,
+                        canFindNext: false,
                         onAddHighlight: { _ in },
                         onRemoveHighlight: { _ in },
-                        onNavigateToHighlight: { _ in }
+                        onNavigateToHighlight: { _ in },
+                        onFindPrevious: {},
+                        onFindNext: {},
+                        onClearFind: {}
                     )
                     .layoutPriority(0)
                 }

@@ -165,6 +165,7 @@ struct FindPanelView: View {
         .padding(20)
         .frame(width: 480)
         .onAppear {
+            restoreFromSession()
             validateInput()
             updateStatusFromSession()
         }
@@ -177,6 +178,17 @@ struct FindPanelView: View {
         .onChange(of: pane.findProgress) { _, _ in
             updateStatusFromSession()
         }
+    }
+
+    private func restoreFromSession() {
+        guard let session = pane.findSession else { return }
+
+        searchText = session.queryText
+        isHexMode = session.mode == .hex
+        isASCIIMode = session.mode == .ascii
+        searchEntireFile = session.entireFile
+        searchDown = session.direction == .down
+        searchUp = session.direction == .up
     }
 
     private func validateInput() {
