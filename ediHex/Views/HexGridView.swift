@@ -210,7 +210,6 @@ struct HexGridView: View {
                     editingOffset: editingOffset,
                     editingHexText: editingHexText,
                     textEncoding: textEncoding,
-                    highlightColor: highlightColor,
                     userHexSpans: HexHighlightSpans.spans(
                         for: rowIndex,
                         bytesPerRow: bytesPerRow,
