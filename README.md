@@ -27,15 +27,17 @@ Native macOS hex editor for inspecting, editing, and analyzing binary files. Bui
 - Tabbed editor groups (VS Code–style layout)
 - Split panes horizontally or vertically
 - Drag-and-drop to open files
-- Side-by-side binary comparison with color-coded diff, minimap, and linked scrolling
-- **Compare with…** from a tab context menu to diff against another open file
+- Side-by-side binary comparison with color-coded diff, minimap, linked scrolling, and diff navigation (F3 / ⇧F3)
+- **Compare with…** — **Tools** menu or tab context menu; active file is the left side
+- **Inspector → Comparison** — scan progress, diff region count, current offset, Previous / Next
 
 ### Analysis tools
-- **Find** — search by hex pattern or ASCII text across the file or selection
+- **Find** — search by hex pattern or ASCII text (entire file or selection); background scan with progress on large files
+- **Inspector → Find Results** — browse and navigate matches after closing the Find panel (Previous / Next, Clear)
 - **Hash** — MD5, SHA-1, SHA-224/256/384/512 (file or selection)
 - **CRC** — CRC-8/16/32 with 60+ industry presets (Modbus, USB, AUTOSAR, ISO-HDLC, …) and custom parameters
 - **Histogram** — byte frequency distribution for the file or selection; export as PNG or JPEG
-- **Inspector** — offset, length, binary view, integer interpretations (LE/BE, `int8_t` … `uint64_t`)
+- **Inspector** — offset, length, binary view, integer interpretations (LE/BE, `int8_t` … `uint64_t`); Find Results and Comparison sections when a search or diff is active
 
 ### Built-in terminal
 Scriptable command line in the panel below the editor (active document pane). Disabled in comparison panes. Type `help` for the full reference.
@@ -94,6 +96,7 @@ Test coverage includes byte-array I/O, virtual scroll window, row loading and ca
 | Undo / Redo | ⌘Z / ⇧⌘Z |
 | Copy selection as hex | ⇧⌘C |
 | Find | ⌘F |
+| Next / previous difference (compare) | F3 / ⇧F3 |
 | Split right / down | ⌘\\ / ⇧⌘\\ |
 | Next / previous tab | ⇧⌘] / ⇧⌘[ |
 | Close tab / group | ⌘W / ⇧⌘W |
