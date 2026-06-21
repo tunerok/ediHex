@@ -93,6 +93,7 @@ struct HelpView: View {
     private var toolsSection: some View {
         HelpSection(title: String(localized: "Analysis Tools")) {
             HelpBullet(String(localized: "Edit → Find… (⌘F) — search by hex pattern or ASCII text."))
+            HelpBullet(String(localized: "Inspector → Find Results — navigate previous matches after closing Find."))
             HelpBullet(String(localized: "Tools → Hash — MD5, SHA family, SHA3 (entire file or selection)."))
             HelpBullet(String(localized: "Tools → Calculate CRC… — CRC-8/16/32 with industry presets or custom parameters."))
             HelpBullet(String(localized: "Tools → Byte Histogram — byte frequency for the file or selection."))

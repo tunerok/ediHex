@@ -842,8 +842,26 @@ final class DocumentPaneViewModel: Identifiable {
 
     func closeFindSheet() {
         cancelFindSearch()
+        if var session = findSession, !session.isScanningComplete {
+            session.isScanningComplete = true
+            findSession = session
+        }
         showFindSheet = false
+    }
+
+    func clearFindResults() {
+        cancelFindSearch()
         findSession = nil
+    }
+
+    var canFindPrevious: Bool {
+        guard let session = findSession, session.hasMatches else { return false }
+        return session.currentIndex > 0
+    }
+
+    var canFindNext: Bool {
+        guard let session = findSession, session.hasMatches else { return false }
+        return session.currentIndex + 1 < session.matches.count
     }
 
     func startFind(
@@ -859,6 +877,7 @@ final class DocumentPaneViewModel: Identifiable {
         case .success(let pattern):
             beginFindSearch()
 
+            let queryText = input.trimmingCharacters(in: .whitespacesAndNewlines)
             let generation = findGeneration
             let cursor = selectedOffset ?? 0
             let fileSizeSnapshot = fileSize
@@ -903,6 +922,7 @@ final class DocumentPaneViewModel: Identifiable {
                             guard generation == self.findGeneration else { return }
 
                             if var session = self.findSession,
+                               session.queryText == queryText,
                                session.pattern == pattern,
                                session.mode == mode,
                                session.entireFile == entireFile,
@@ -914,6 +934,7 @@ final class DocumentPaneViewModel: Identifiable {
                                 self.findSession = session
                             } else {
                                 self.findSession = FindSession(
+                                    queryText: queryText,
                                     pattern: pattern,
                                     mode: mode,
                                     entireFile: entireFile,
@@ -940,6 +961,7 @@ final class DocumentPaneViewModel: Identifiable {
 
                     if finalMatches.isEmpty {
                         self.findSession = FindSession(
+                            queryText: queryText,
                             pattern: pattern,
                             mode: mode,
                             entireFile: entireFile,
@@ -952,6 +974,7 @@ final class DocumentPaneViewModel: Identifiable {
                     }
 
                     self.findSession = FindSession(
+                        queryText: queryText,
                         pattern: pattern,
                         mode: mode,
                         entireFile: entireFile,

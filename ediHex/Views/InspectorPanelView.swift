@@ -10,9 +10,15 @@ struct InspectorPanelView: View {
     let bytes: [UInt8]
     let selectedOffset: Int?
     let highlights: [HexHighlight]
+    let findSession: FindSession?
+    let canFindPrevious: Bool
+    let canFindNext: Bool
     let onAddHighlight: (HighlightColor) -> Void
     let onRemoveHighlight: (UUID) -> Void
     let onNavigateToHighlight: (HexHighlight) -> Void
+    let onFindPrevious: () -> Void
+    let onFindNext: () -> Void
+    let onClearFind: () -> Void
 
     private var integerInterpretations: [IntegerInterpretation] {
         SelectionIntegerParser.interpretations(for: bytes)
@@ -58,6 +64,17 @@ struct InspectorPanelView: View {
                         InspectorRow(title: String(localized: "Length")) {
                             Text("\(displayLength) \(String(localized: "bytes"))")
                         }
+                    }
+
+                    if let findSession {
+                        InspectorFindResultsSection(
+                            session: findSession,
+                            canFindPrevious: canFindPrevious,
+                            canFindNext: canFindNext,
+                            onFindPrevious: onFindPrevious,
+                            onFindNext: onFindNext,
+                            onClearFind: onClearFind
+                        )
                     }
 
                     Section(String(localized: "Highlights")) {
@@ -182,9 +199,23 @@ private struct InspectorRow<Content: View>: View {
         bytes: [0x48],
         selectedOffset: 72,
         highlights: [HexHighlight(start: 64, end: 80, color: .yellow)],
+        findSession: FindSession(
+            queryText: "48",
+            pattern: [0x48],
+            mode: .hex,
+            entireFile: true,
+            direction: .down,
+            matches: [72],
+            currentIndex: 0
+        ),
+        canFindPrevious: false,
+        canFindNext: false,
         onAddHighlight: { _ in },
         onRemoveHighlight: { _ in },
-        onNavigateToHighlight: { _ in }
+        onNavigateToHighlight: { _ in },
+        onFindPrevious: {},
+        onFindNext: {},
+        onClearFind: {}
     )
 }
 
@@ -194,8 +225,14 @@ private struct InspectorRow<Content: View>: View {
         bytes: [],
         selectedOffset: nil,
         highlights: [],
+        findSession: nil,
+        canFindPrevious: false,
+        canFindNext: false,
         onAddHighlight: { _ in },
         onRemoveHighlight: { _ in },
-        onNavigateToHighlight: { _ in }
+        onNavigateToHighlight: { _ in },
+        onFindPrevious: {},
+        onFindNext: {},
+        onClearFind: {}
     )
 }
