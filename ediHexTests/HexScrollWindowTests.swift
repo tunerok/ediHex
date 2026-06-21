@@ -87,4 +87,17 @@ struct HexScrollWindowTests {
         #expect(window.firstVisibleRow == 16)
         #expect(window.lastVisibleRow(for: 100) == 25)
     }
+
+    @Test func maintainScrollAfterVisibleRowCountChangePinsBottomWhenViewportShrinks() {
+        var window = HexScrollWindow(firstVisibleRow: 15, visibleRowCount: 31)
+        window.maintainScrollAfterVisibleRowCountChange(from: 32, rowCount: 47)
+        #expect(window.firstVisibleRow == 16)
+        #expect(window.lastVisibleRow(for: 47) == 46)
+    }
+
+    @Test func maintainScrollAfterVisibleRowCountChangePreservesPositionWhenNotAtBottom() {
+        var window = HexScrollWindow(firstVisibleRow: 5, visibleRowCount: 32)
+        window.maintainScrollAfterVisibleRowCountChange(from: 32, rowCount: 47)
+        #expect(window.firstVisibleRow == 5)
+    }
 }

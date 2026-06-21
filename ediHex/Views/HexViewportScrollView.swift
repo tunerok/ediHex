@@ -84,9 +84,38 @@ struct HexViewportScrollView<RowContent: View, Overlay: View>: View {
             applyWindow(window)
             reportVisibleState(window: window)
         }
-        .onChange(of: visibleRowCount) { _, _ in
-            clampFirstVisibleRow()
-            reportVisibleState(window: scrollWindow)
+        .onChange(of: visibleRowCount) { oldCount, newCount in
+            guard oldCount != newCount else { return }
+            let oldMax = max(0, rowCount - max(1, oldCount))
+            let wasPinnedToBottom = firstVisibleRow >= oldMax
+            let firstVisibleRowBefore = firstVisibleRow
+            var window = scrollWindow
+            window.maintainScrollAfterVisibleRowCountChange(from: oldCount, rowCount: rowCount)
+            applyWindow(window)
+            #if DEBUG_VIEW
+            // #region agent log
+            if wasPinnedToBottom || window.firstVisibleRow != firstVisibleRowBefore {
+                AgentDebugLog.write(
+                    hypothesisId: "G",
+                    location: "HexViewportScrollView.swift:onChange(visibleRowCount)",
+                    message: "viewport row count changed",
+                    data: [
+                        "oldVisibleRowCount": oldCount,
+                        "newVisibleRowCount": newCount,
+                        "oldMaxFirstVisibleRow": oldMax,
+                        "wasPinnedToBottom": wasPinnedToBottom,
+                        "firstVisibleRowBefore": firstVisibleRowBefore,
+                        "firstVisibleRowAfter": window.firstVisibleRow,
+                        "maxFirstVisibleRowAfter": window.maxFirstVisibleRow(for: rowCount),
+                        "rowCount": rowCount,
+                        "lastRowInVisibleAfter": window.visibleRowRange(for: rowCount)
+                            .contains(rowCount - 1),
+                    ]
+                )
+            }
+            // #endregion
+            #endif
+            reportVisibleState(window: window)
         }
         .onChange(of: rowCount) { _, _ in
             clampFirstVisibleRow()
@@ -114,7 +143,7 @@ struct HexViewportScrollView<RowContent: View, Overlay: View>: View {
             var window = scrollWindow
             window.jumpTo(row: row, rowCount: rowCount, anchor: .top)
             applyWindow(window)
-            #if DEBUG
+            #if DEBUG_VIEW
             HexScrollLog.windowState(window, rowCount: rowCount, event: "linkedScroll")
             #endif
             reportVisibleState(window: window)
@@ -198,7 +227,7 @@ struct HexViewportScrollView<RowContent: View, Overlay: View>: View {
         scrollAccumulator = 0
         lastWheelApplyTime = now
 
-        #if DEBUG
+        #if DEBUG_VIEW
         HexScrollLog.windowState(window, rowCount: rowCount, event: "wheel")
         #endif
         reportVisibleState(window: window)
@@ -214,7 +243,7 @@ struct HexViewportScrollView<RowContent: View, Overlay: View>: View {
         window.jumpTo(row: row, rowCount: rowCount, anchor: anchor)
         scrollPhase = .idle
         applyWindow(window)
-        #if DEBUG
+        #if DEBUG_VIEW
         HexScrollLog.windowState(window, rowCount: rowCount, event: "jump")
         #endif
         reportVisibleState(window: window)
@@ -236,7 +265,7 @@ struct HexViewportScrollView<RowContent: View, Overlay: View>: View {
         window.revealRow(row, rowCount: rowCount)
         scrollPhase = .idle
         applyWindow(window)
-        #if DEBUG
+        #if DEBUG_VIEW
         HexScrollLog.windowState(window, rowCount: rowCount, event: "reveal")
         #endif
         reportVisibleState(window: window)
@@ -248,6 +277,37 @@ struct HexViewportScrollView<RowContent: View, Overlay: View>: View {
         let visible = window.visibleRowRange(for: rowCount)
         onVisibleRowRangeChanged?(visible)
         onVisibleRowChanged?(window.firstVisibleRow)
+
+        #if DEBUG_VIEW
+        // #region agent log
+        if contentWidth > HexGridLayout.hexTextContentWidth(for: 16) * 1.5 {
+            let rendered = window.renderedRange(for: rowCount)
+            let lastRow = rowCount - 1
+            let lastRowY = HexGridLayout.contentPadding
+                + CGFloat(max(0, lastRow - window.firstVisibleRow)) * HexGridLayout.rowHeight
+            AgentDebugLog.write(
+                hypothesisId: "B",
+                location: "HexViewportScrollView.swift:reportVisibleState",
+                message: "viewport scroll state",
+                data: [
+                    "contentWidth": Double(contentWidth),
+                    "firstVisibleRow": window.firstVisibleRow,
+                    "visibleRowCount": visibleRowCount,
+                    "rowCount": rowCount,
+                    "visibleRangeLower": visible.lowerBound,
+                    "visibleRangeUpper": visible.upperBound,
+                    "renderedLower": rendered.lowerBound,
+                    "renderedUpper": rendered.upperBound,
+                    "lastRowInVisible": visible.contains(lastRow),
+                    "lastRowInRendered": rendered.contains(lastRow),
+                    "lastRowY": Double(lastRowY),
+                    "lastRowBottomY": Double(lastRowY + HexGridLayout.rowHeight),
+                    "maxFirstVisibleRow": window.maxFirstVisibleRow(for: rowCount),
+                ]
+            )
+        }
+        // #endregion
+        #endif
 
         let visibleLoadRange = window.firstVisibleRow..<min(
             rowCount,

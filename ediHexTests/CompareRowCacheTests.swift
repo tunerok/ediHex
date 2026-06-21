@@ -222,6 +222,54 @@ struct CompareRowCacheTests {
         }
     }
 
+    @Test func partialLastRowLoadsForOddSizedFileAtEightBytesPerRow() {
+        let fileSize = 737
+        var bytes = Array(repeating: UInt8(0), count: fileSize)
+        bytes[fileSize - 1] = 0xAB
+        let leftArray = makeArray(bytes)
+        let rightArray = makeArray(bytes)
+        let lastRow = HexFormatter.rowCount(for: fileSize, bytesPerRow: 8) - 1
+
+        let batch = CompareRowLoader.buildContexts(
+            for: (lastRow - 2)..<(lastRow + 1),
+            bytesPerRow: 8,
+            fileSize: fileSize,
+            leftArray: leftArray,
+            rightArray: rightArray,
+            leftSize: fileSize,
+            rightSize: fileSize
+        )
+
+        let context = batch[lastRow]
+        #expect(context != nil)
+        #expect(context?.leftBytes == [0xAB])
+        #expect(context?.rightBytes == [0xAB])
+    }
+
+    @Test func partialLastRowLoadsLeftOnlyWhenRightFileIsShorter() {
+        let leftSize = 737
+        let rightSize = 424
+        var left = Array(repeating: UInt8(0), count: leftSize)
+        left[leftSize - 1] = 0xCD
+        let right = Array(repeating: UInt8(0), count: rightSize)
+        let lastRow = HexFormatter.rowCount(for: leftSize, bytesPerRow: 8) - 1
+
+        let batch = CompareRowLoader.buildContexts(
+            for: lastRow..<(lastRow + 1),
+            bytesPerRow: 8,
+            fileSize: leftSize,
+            leftArray: makeArray(left),
+            rightArray: makeArray(right),
+            leftSize: leftSize,
+            rightSize: rightSize
+        )
+
+        let context = batch[lastRow]
+        #expect(context != nil)
+        #expect(context?.leftBytes == [0xCD])
+        #expect(context?.rightBytes == [])
+    }
+
     @Test func staleRowIndexMapsToDifferentOffsets() {
         let fileSize = 256
         let bytes = Array((0..<fileSize).map(UInt8.init))
