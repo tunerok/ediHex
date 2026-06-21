@@ -38,6 +38,8 @@ struct BytePatternParseResult: Equatable {
 }
 
 enum BytePatternSearch {
+    static let progressChunkSize = 262_144
+
     static func pattern(from input: String, mode: FindPatternMode) -> Result<[UInt8], HexParseError> {
         switch mode {
         case .hex:
@@ -121,6 +123,169 @@ enum BytePatternSearch {
         return BytePatternParseResult(pattern: pattern, rangeTokens: [])
     }
 
+    static func searchRange(
+        fileSize: Int,
+        entireFile: Bool,
+        direction: FindDirection,
+        cursor: Int
+    ) -> Range<Int> {
+        guard fileSize > 0 else { return 0..<0 }
+
+        if entireFile {
+            return 0..<fileSize
+        }
+
+        switch direction {
+        case .down:
+            return min(max(0, cursor), fileSize)..<fileSize
+        case .up:
+            return 0..<min(max(0, cursor), fileSize)
+        }
+    }
+
+    static func findFirst(
+        pattern: [UInt8],
+        in range: Range<Int>,
+        bytesProvider: (Range<Int>) -> [UInt8],
+        chunkSize: Int = progressChunkSize
+    ) -> Int? {
+        guard !pattern.isEmpty, range.lowerBound < range.upperBound else { return nil }
+
+        if range.count <= chunkSize + pattern.count {
+            let haystack = bytesProvider(range)
+            return findFirstInMemory(
+                pattern: pattern,
+                haystack: haystack,
+                rangeStart: range.lowerBound,
+                validRange: range
+            )
+        }
+
+        let overlap = max(0, pattern.count - 1)
+        var cursor = range.lowerBound
+
+        while cursor < range.upperBound {
+            if Task.isCancelled { return nil }
+
+            let readStart = cursor == range.lowerBound ? range.lowerBound : max(range.lowerBound, cursor - overlap)
+            let readEnd = min(range.upperBound, cursor + chunkSize + overlap)
+            let chunk = bytesProvider(readStart..<readEnd)
+            if let match = findFirstInMemory(
+                pattern: pattern,
+                haystack: chunk,
+                rangeStart: readStart,
+                validRange: range
+            ) {
+                return match
+            }
+            cursor += chunkSize
+        }
+
+        return nil
+    }
+
+    static func findLast(
+        pattern: [UInt8],
+        in range: Range<Int>,
+        bytesProvider: (Range<Int>) -> [UInt8],
+        chunkSize: Int = progressChunkSize
+    ) -> Int? {
+        guard !pattern.isEmpty, range.lowerBound < range.upperBound else { return nil }
+
+        if range.count <= chunkSize + pattern.count {
+            let haystack = bytesProvider(range)
+            return findLastInMemory(
+                pattern: pattern,
+                haystack: haystack,
+                rangeStart: range.lowerBound,
+                validRange: range
+            )
+        }
+
+        let overlap = max(0, pattern.count - 1)
+        var lastMatch: Int?
+        var cursor = range.lowerBound
+
+        while cursor < range.upperBound {
+            if Task.isCancelled { return lastMatch }
+
+            let readStart = cursor == range.lowerBound ? range.lowerBound : max(range.lowerBound, cursor - overlap)
+            let readEnd = min(range.upperBound, cursor + chunkSize + overlap)
+            let chunk = bytesProvider(readStart..<readEnd)
+            if let match = findLastInMemory(
+                pattern: pattern,
+                haystack: chunk,
+                rangeStart: readStart,
+                validRange: range
+            ) {
+                lastMatch = match
+            }
+            cursor += chunkSize
+        }
+
+        return lastMatch
+    }
+
+    static func findAllIncremental(
+        pattern: [UInt8],
+        in range: Range<Int>,
+        bytesProvider: (Range<Int>) -> [UInt8],
+        chunkSize: Int = progressChunkSize,
+        onProgress: ((_ progress: Double) async -> Void)? = nil,
+        onMatch: ((_ offset: Int) async -> Void)? = nil
+    ) async -> [Int] {
+        guard !pattern.isEmpty, range.lowerBound < range.upperBound else {
+            await onProgress?(1)
+            return []
+        }
+
+        let totalBytes = range.count
+        var matches: [Int] = []
+        let overlap = max(0, pattern.count - 1)
+        var cursor = range.lowerBound
+
+        await onProgress?(0)
+
+        if range.count <= chunkSize + pattern.count {
+            if Task.isCancelled { return [] }
+            let haystack = bytesProvider(range)
+            let local = findAllInMemory(pattern: pattern, haystack: haystack, rangeStart: range.lowerBound)
+            for match in local where match >= range.lowerBound && match < range.upperBound {
+                matches.append(match)
+                await onMatch?(match)
+            }
+            await onProgress?(1)
+            return matches
+        }
+
+        var seen = Set<Int>()
+
+        while cursor < range.upperBound {
+            if Task.isCancelled { break }
+
+            let readStart = cursor == range.lowerBound ? range.lowerBound : max(range.lowerBound, cursor - overlap)
+            let readEnd = min(range.upperBound, cursor + chunkSize + overlap)
+            let chunk = bytesProvider(readStart..<readEnd)
+            if Task.isCancelled { break }
+            let local = findAllInMemory(pattern: pattern, haystack: chunk, rangeStart: readStart)
+            for match in local where match >= range.lowerBound && match < range.upperBound {
+                if seen.insert(match).inserted {
+                    matches.append(match)
+                    await onMatch?(match)
+                }
+            }
+
+            let processedBytes = min(readEnd, range.upperBound) - range.lowerBound
+            let progress = Double(processedBytes) / Double(totalBytes)
+            await onProgress?(progress)
+
+            cursor += chunkSize
+        }
+
+        await onProgress?(1)
+        return matches.sorted()
+    }
+
     static func findAll(
         pattern: [UInt8],
         in range: Range<Int>,
@@ -184,6 +349,45 @@ enum BytePatternSearch {
         return matches
     }
 
+    private static func findFirstInMemory(
+        pattern: [UInt8],
+        haystack: [UInt8],
+        rangeStart: Int,
+        validRange: Range<Int>
+    ) -> Int? {
+        guard haystack.count >= pattern.count else { return nil }
+
+        let lastStart = haystack.count - pattern.count
+        for start in 0...lastStart {
+            let offset = rangeStart + start
+            guard offset >= validRange.lowerBound, offset < validRange.upperBound else { continue }
+            if haystack[start..<(start + pattern.count)].elementsEqual(pattern) {
+                return offset
+            }
+        }
+        return nil
+    }
+
+    private static func findLastInMemory(
+        pattern: [UInt8],
+        haystack: [UInt8],
+        rangeStart: Int,
+        validRange: Range<Int>
+    ) -> Int? {
+        guard haystack.count >= pattern.count else { return nil }
+
+        var lastMatch: Int?
+        let lastStart = haystack.count - pattern.count
+        for start in 0...lastStart {
+            let offset = rangeStart + start
+            guard offset >= validRange.lowerBound, offset < validRange.upperBound else { continue }
+            if haystack[start..<(start + pattern.count)].elementsEqual(pattern) {
+                lastMatch = offset
+            }
+        }
+        return lastMatch
+    }
+
     static func search(
         pattern: [UInt8],
         fileSize: Int,
@@ -194,17 +398,12 @@ enum BytePatternSearch {
     ) -> [Int] {
         guard !pattern.isEmpty, fileSize > 0 else { return [] }
 
-        let range: Range<Int>
-        if entireFile {
-            range = 0..<fileSize
-        } else {
-            switch direction {
-            case .down:
-                range = min(max(0, cursor), fileSize)..<fileSize
-            case .up:
-                range = 0..<min(max(0, cursor), fileSize)
-            }
-        }
+        let range = searchRange(
+            fileSize: fileSize,
+            entireFile: entireFile,
+            direction: direction,
+            cursor: cursor
+        )
 
         let found = findAll(pattern: pattern, in: range, bytesProvider: bytesProvider)
         if entireFile || direction == .down {
@@ -226,12 +425,12 @@ enum BytePatternSearch {
         if entireFile || direction == .down {
             let start = afterOffset + 1
             guard start < fileSize else { return nil }
-            return findAll(pattern: pattern, in: start..<fileSize, bytesProvider: bytesProvider).first
+            return findFirst(pattern: pattern, in: start..<fileSize, bytesProvider: bytesProvider)
         }
 
         let end = afterOffset
         guard end > 0 else { return nil }
-        return findAll(pattern: pattern, in: 0..<end, bytesProvider: bytesProvider).last
+        return findLast(pattern: pattern, in: 0..<end, bytesProvider: bytesProvider)
     }
 
     static func formatMatches(_ matches: [Int]) -> String {

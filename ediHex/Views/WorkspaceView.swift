@@ -16,6 +16,13 @@ struct WorkspaceView: View {
 
             statusBar
         }
+        .sheet(isPresented: activePaneBinding(\.showFindSheet)) {
+            if let pane = workspace.activePane {
+                FindPanelView(pane: pane) {
+                    pane.closeFindSheet()
+                }
+            }
+        }
         .sheet(isPresented: activePaneBinding(\.showBinarySheet)) {
             if let pane = workspace.activePane {
                 BinarySelectionView(
@@ -63,13 +70,6 @@ struct WorkspaceView: View {
                     bytesProvider: { range in pane.bytes(in: range) }
                 ) {
                     pane.showHashSheet = false
-                }
-            }
-        }
-        .sheet(isPresented: activePaneBinding(\.showFindSheet)) {
-            if let pane = workspace.activePane {
-                FindPanelView(pane: pane) {
-                    pane.closeFindSheet()
                 }
             }
         }
