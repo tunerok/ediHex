@@ -125,7 +125,7 @@ final class BTreeByteArray: @unchecked Sendable {
         if entry.length == 1 {
             tree.remove(at: beginning)
             tree.insert(SliceBox(MemoryByteSlice(singleByte: value)), at: beginning)
-        } else if entry.slice is MemoryByteSlice, entry.length <= 4096 {
+        } else if entry.length <= 4096 {
             var data = entry.slice.bytes(in: 0..<entry.length)
             data[Int(offsetInSlice)] = value
             tree.remove(at: beginning)
@@ -134,10 +134,11 @@ final class BTreeByteArray: @unchecked Sendable {
             let left = entry.slice.subslice(range: 0..<offsetInSlice)
             let right = entry.slice.subslice(range: (offsetInSlice + 1)..<entry.length)
             let middle = MemoryByteSlice(singleByte: value)
-            tree.remove(at: beginning)
-            insertSlice(right, at: beginning)
-            insertSlice(middle, at: beginning)
-            insertSlice(left, at: beginning)
+            var replacements: [SliceBox] = []
+            if left.length > 0 { replacements.append(SliceBox(left)) }
+            replacements.append(SliceBox(middle))
+            if right.length > 0 { replacements.append(SliceBox(right)) }
+            tree.replaceEntry(at: beginning, with: replacements)
         }
 
         bumpGeneration()

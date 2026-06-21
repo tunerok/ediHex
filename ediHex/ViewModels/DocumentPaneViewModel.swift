@@ -1085,16 +1085,23 @@ final class DocumentPaneViewModel: Identifiable {
             return
         }
 
-        commitByte(at: offset, value: newValue, wasAppended: editingAppendedByte)
+        let didCommit = commitByte(at: offset, value: newValue, wasAppended: editingAppendedByte)
 
         editingHexText = ""
         editingAppendedByte = false
-        let nextOffset = offset + 1
-        editingOffset = nextOffset
-        if nextOffset < fileSize {
-            selection = .single(at: nextOffset)
-        } else if offset < fileSize {
+        guard didCommit else {
+            editingOffset = offset
             selection = .single(at: offset)
+            return
+        }
+
+        let nextOffset = offset + 1
+        if nextOffset < fileSize {
+            editingOffset = nextOffset
+            selection = .single(at: nextOffset)
+        } else {
+            editingOffset = fileSize - 1
+            selection = .single(at: fileSize - 1)
         }
     }
 
@@ -1143,25 +1150,28 @@ final class DocumentPaneViewModel: Identifiable {
         undoManager.redo()
     }
 
-    private func commitByte(at offset: Int, value: UInt8, wasAppended: Bool) {
-        guard let document else { return }
+    @discardableResult
+    private func commitByte(at offset: Int, value: UInt8, wasAppended: Bool) -> Bool {
+        guard let document else { return false }
 
         if wasAppended {
             let oldValue = byte(at: offset) ?? 0
             if value != oldValue {
-                _ = document.replaceByte(at: offset, with: value)
+                guard document.replaceByte(at: offset, with: value) != nil else { return false }
             }
             document.markDirty()
             registerAppendUndo(at: offset, value: value)
             bumpDataRevisionAfterEdit(at: offset)
-        } else {
-            guard let oldValue = byte(at: offset) else { return }
-            guard value != oldValue else { return }
-            _ = document.replaceByte(at: offset, with: value)
-            document.markDirty()
-            registerUndo(at: offset, oldValue: oldValue, newValue: value)
-            bumpDataRevisionAfterEdit(at: offset)
+            return true
         }
+
+        guard let oldValue = byte(at: offset) else { return false }
+        guard value != oldValue else { return false }
+        guard document.replaceByte(at: offset, with: value) != nil else { return false }
+        document.markDirty()
+        registerUndo(at: offset, oldValue: oldValue, newValue: value)
+        bumpDataRevisionAfterEdit(at: offset)
+        return true
     }
 
     private func appendByte(_ value: UInt8) {
