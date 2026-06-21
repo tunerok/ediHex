@@ -89,7 +89,7 @@ struct DocumentPaneViewModelHexEditingTests {
         #expect(try Data(contentsOf: url) == expected)
     }
 
-    @Test func noOpCommitDoesNotAdvanceCursor() throws {
+    @Test func noOpCommitAdvancesCursor() throws {
         let (pane, url) = try makePaneWithFile(Data([0x11, 0x22, 0x33]))
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -99,8 +99,28 @@ struct DocumentPaneViewModelHexEditingTests {
 
         #expect(pane.byte(at: 0) == 0x11)
         #expect(pane.byte(at: 1) == 0x22)
-        #expect(pane.selection?.start == 0)
-        #expect(pane.editingOffset == 0)
+        #expect(!pane.isDirty)
+        #expect(pane.selection?.start == 1)
+        #expect(pane.editingOffset == 1)
+    }
+
+    @Test func repeatedSameValuePairsAdvanceThroughBytes() throws {
+        let (pane, url) = try makePaneWithFile(Data([0x11, 0x11, 0x22, 0x33]))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        pane.beginSelection(at: 0)
+        pane.endSelection(at: 0)
+
+        for _ in 0..<3 {
+            typePair(pane, high: "1", low: "1")
+        }
+
+        #expect(pane.byte(at: 0) == 0x11)
+        #expect(pane.byte(at: 1) == 0x11)
+        #expect(pane.byte(at: 2) == 0x22)
+        #expect(!pane.isDirty)
+        #expect(pane.selection?.start == 3)
+        #expect(pane.editingOffset == 3)
     }
 
     @Test func appendAfterLastByteEntersAppendMode() throws {
