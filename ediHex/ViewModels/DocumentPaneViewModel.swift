@@ -1618,7 +1618,9 @@ final class DocumentPaneViewModel: Identifiable {
         }
 
         guard let oldValue = byte(at: offset) else { return false }
-        guard value != oldValue else { return false }
+        if value == oldValue {
+            return true
+        }
         guard document.replaceByte(at: offset, with: value) != nil else { return false }
         document.markDirty()
         registerUndo(at: offset, oldValue: oldValue, newValue: value)
