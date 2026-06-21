@@ -183,4 +183,90 @@ final class BytePatternSearchTests: XCTestCase {
         XCTAssertEqual(result?.pattern, Array("hello world".utf8))
         XCTAssertTrue(result?.rangeTokens.isEmpty ?? false)
     }
+
+    func testFindFirstReturnsEarly() {
+        let fileSize = 1_000_000
+        let chunkSize = 1_024
+        var providerCalls = 0
+
+        let provider: (Range<Int>) -> [UInt8] = { range in
+            providerCalls += 1
+            if range.lowerBound == 0 {
+                return [0x01, 0x02]
+            }
+            return Array(repeating: 0x00, count: range.count)
+        }
+
+        let match = BytePatternSearch.findFirst(
+            pattern: [0x01, 0x02],
+            in: 0..<fileSize,
+            bytesProvider: provider,
+            chunkSize: chunkSize
+        )
+
+        XCTAssertEqual(match, 0)
+        XCTAssertEqual(providerCalls, 1)
+    }
+
+    func testFindLast() {
+        let data: [UInt8] = [0x01, 0x02, 0x00, 0x01, 0x02, 0x00, 0x01, 0x02]
+        let provider: (Range<Int>) -> [UInt8] = { range in
+            Array(data[range])
+        }
+
+        let last = BytePatternSearch.findLast(
+            pattern: [0x01, 0x02],
+            in: 0..<data.count,
+            bytesProvider: provider
+        )
+
+        XCTAssertEqual(last, 6)
+    }
+
+    func testFindNextDoesNotScanEntireTail() {
+        let fileSize = 1_000_000
+        let chunkSize = 1_024
+        var providerCalls = 0
+
+        let provider: (Range<Int>) -> [UInt8] = { range in
+            providerCalls += 1
+            if range.lowerBound <= 2_048 {
+                return [0x01, 0x02] + Array(repeating: 0x00, count: max(0, range.count - 2))
+            }
+            return Array(repeating: 0x00, count: range.count)
+        }
+
+        let next = BytePatternSearch.findNext(
+            pattern: [0x01, 0x02],
+            fileSize: fileSize,
+            bytesProvider: provider,
+            entireFile: false,
+            direction: .down,
+            afterOffset: 1_024
+        )
+
+        XCTAssertEqual(next, 1_025)
+        XCTAssertLessThan(providerCalls, fileSize / chunkSize)
+    }
+
+    func testFindAllIncrementalReportsProgress() async {
+        let fileSize = 8_192
+        let provider = makeSequentialProvider()
+        var progressValues: [Double] = []
+
+        let matches = await BytePatternSearch.findAllIncremental(
+            pattern: [0x01, 0x02],
+            in: 0..<fileSize,
+            bytesProvider: provider,
+            chunkSize: 1_024,
+            onProgress: { progress in
+                progressValues.append(progress)
+            },
+            onMatch: nil
+        )
+
+        XCTAssertEqual(matches, [1])
+        XCTAssertFalse(progressValues.isEmpty)
+        XCTAssertEqual(progressValues.last, 1.0)
+    }
 }

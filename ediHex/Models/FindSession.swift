@@ -12,6 +12,7 @@ struct FindSession: Equatable {
     let direction: FindDirection
     var matches: [Int]
     var currentIndex: Int
+    var isScanningComplete: Bool = true
 
     var hasMatches: Bool {
         !matches.isEmpty
@@ -22,8 +23,16 @@ struct FindSession: Equatable {
         return matches[currentIndex]
     }
 
-    var statusText: String? {
+    func statusText(isScanning: Bool, progress: Double) -> String? {
         guard hasMatches else { return nil }
+
+        if isScanning {
+            return String(
+                localized: "Match \(currentIndex + 1) of \(matches.count) (scanning… \(String(format: "%.1f", progress * 100))%)",
+                comment: "Find dialog status while scanning"
+            )
+        }
+
         return String(
             localized: "Match \(currentIndex + 1) of \(matches.count)",
             comment: "Find dialog status"

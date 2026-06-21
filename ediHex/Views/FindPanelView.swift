@@ -35,6 +35,13 @@ struct FindPanelView: View {
         return true
     }
 
+    private var progressText: String {
+        String(
+            localized: "Scanning… \(String(format: "%.1f", pane.findProgress * 100))%",
+            comment: "Find scan progress"
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(String(localized: "Find"))
@@ -43,6 +50,7 @@ struct FindPanelView: View {
             TextField(String(localized: "Search pattern"), text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .font(isHexMode ? .body.monospaced() : .body)
+                .disabled(pane.isFindLoading)
                 .onChange(of: searchText) { _, _ in
                     validateInput()
                 }
@@ -58,6 +66,7 @@ struct FindPanelView: View {
 
             Form {
                 Toggle(String(localized: "Hex"), isOn: $isHexMode)
+                    .disabled(pane.isFindLoading)
                     .onChange(of: isHexMode) { _, newValue in
                         if newValue {
                             isASCIIMode = false
@@ -67,6 +76,7 @@ struct FindPanelView: View {
                     }
 
                 Toggle(String(localized: "ASCII"), isOn: $isASCIIMode)
+                    .disabled(pane.isFindLoading)
                     .onChange(of: isASCIIMode) { _, newValue in
                         if newValue {
                             isHexMode = false
@@ -76,9 +86,10 @@ struct FindPanelView: View {
                     }
 
                 Toggle(String(localized: "Search entire file"), isOn: $searchEntireFile)
+                    .disabled(pane.isFindLoading)
 
                 Toggle(String(localized: "Search down"), isOn: $searchDown)
-                    .disabled(searchEntireFile)
+                    .disabled(searchEntireFile || pane.isFindLoading)
                     .onChange(of: searchDown) { _, newValue in
                         if newValue {
                             searchUp = false
@@ -88,7 +99,7 @@ struct FindPanelView: View {
                     }
 
                 Toggle(String(localized: "Search up"), isOn: $searchUp)
-                    .disabled(searchEntireFile)
+                    .disabled(searchEntireFile || pane.isFindLoading)
                     .onChange(of: searchUp) { _, newValue in
                         if newValue {
                             searchDown = false
@@ -99,6 +110,15 @@ struct FindPanelView: View {
             }
             .formStyle(.grouped)
 
+            if pane.isFindLoading {
+                VStack(spacing: 8) {
+                    ProgressView(value: max(pane.findProgress, 0.001))
+                    Text(progressText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if !statusMessage.isEmpty {
                 Text(statusMessage)
                     .foregroundStyle(pane.findSession?.hasMatches == true ? .primary : .secondary)
@@ -108,13 +128,14 @@ struct FindPanelView: View {
                 Button(String(localized: "Previous")) {
                     performPreviousMatch()
                 }
-                .disabled(pane.findSession?.currentIndex ?? 0 <= 0)
+                .disabled(pane.isFindLoading || (pane.findSession?.currentIndex ?? 0) <= 0)
 
                 Button(String(localized: "Next")) {
                     performNextMatch()
                 }
                 .disabled(
-                    (pane.findSession?.currentIndex ?? -1) + 1 >= (pane.findSession?.matches.count ?? 0)
+                    pane.isFindLoading
+                        || (pane.findSession?.currentIndex ?? -1) + 1 >= (pane.findSession?.matches.count ?? 0)
                 )
 
                 Spacer()
@@ -125,13 +146,20 @@ struct FindPanelView: View {
                 Button(String(localized: "Find Next")) {
                     performFindNext()
                 }
-                .disabled(!isInputValid)
+                .disabled(!isInputValid || pane.isFindLoading)
 
-                Button(String(localized: "Find")) {
-                    performFind()
+                if pane.isFindLoading {
+                    Button(String(localized: "Stop")) {
+                        stopSearch()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                } else {
+                    Button(String(localized: "Find")) {
+                        performFind()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!isInputValid)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!isInputValid)
             }
         }
         .padding(20)
@@ -141,6 +169,12 @@ struct FindPanelView: View {
             updateStatusFromSession()
         }
         .onChange(of: pane.findSession) { _, _ in
+            updateStatusFromSession()
+        }
+        .onChange(of: pane.isFindLoading) { _, _ in
+            updateStatusFromSession()
+        }
+        .onChange(of: pane.findProgress) { _, _ in
             updateStatusFromSession()
         }
     }
@@ -166,13 +200,13 @@ struct FindPanelView: View {
     }
 
     private func performFind() {
-        let result = pane.performFind(
+        statusMessage = ""
+        pane.startFind(
             input: searchText,
             mode: patternMode,
             entireFile: searchEntireFile,
             direction: searchDirection
         )
-        updateStatus(for: result)
     }
 
     private func performFindNext() {
@@ -181,8 +215,16 @@ struct FindPanelView: View {
             return
         }
 
-        let result = pane.findNext()
-        updateStatus(for: result)
+        pane.startFindNext()
+    }
+
+    private func stopSearch() {
+        pane.stopFind()
+        if let session = pane.findSession, session.hasMatches {
+            updateStatusFromSession()
+        } else {
+            statusMessage = String(localized: "Stopped", comment: "Find scan stopped by user")
+        }
     }
 
     private func performPreviousMatch() {
@@ -202,17 +244,25 @@ struct FindPanelView: View {
         case .notFound:
             if keepStatusOnFailure {
                 updateStatusFromSession()
-            } else {
+            } else if !pane.isFindLoading {
                 statusMessage = String(localized: "Not found")
             }
         }
     }
 
     private func updateStatusFromSession() {
-        if let status = pane.findSession?.statusText {
+        if pane.isFindLoading, pane.findSession == nil {
+            statusMessage = progressText
+            return
+        }
+
+        if let session = pane.findSession,
+           let status = session.statusText(isScanning: pane.isFindLoading, progress: pane.findProgress) {
             statusMessage = status
-        } else if pane.findSession != nil {
+        } else if pane.findSession != nil, !pane.isFindLoading {
             statusMessage = String(localized: "Not found")
+        } else if pane.isFindLoading {
+            statusMessage = progressText
         }
     }
 }

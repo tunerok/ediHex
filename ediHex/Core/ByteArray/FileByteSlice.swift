@@ -20,7 +20,11 @@ final class FileByteSlice: ByteSlice, @unchecked Sendable {
         precondition(range.upperBound <= length)
         guard !range.isEmpty else { return }
         let count = Int(range.count)
-        try! file.read(into: buffer, length: count, from: offset + range.lowerBound)
+        do {
+            try file.read(into: buffer, length: count, from: offset + range.lowerBound)
+        } catch {
+            // Caller pre-fills with zeros; avoid crashing on concurrent close or I/O errors.
+        }
     }
 
     func subslice(range: Range<UInt64>) -> any ByteSlice {

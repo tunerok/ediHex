@@ -59,6 +59,10 @@ final class DocumentPaneViewModel: Identifiable {
     private(set) var isHistogramLoading = false
     private(set) var histogramProgress: Double = 0
     @ObservationIgnored private var histogramGeneration = 0
+    private(set) var isFindLoading = false
+    private(set) var findProgress: Double = 0
+    @ObservationIgnored private var findGeneration = 0
+    @ObservationIgnored private var findSearchTask: Task<Void, Never>?
     @ObservationIgnored private var compareRowCache = CompareRowCache()
     @ObservationIgnored private var compareRowCacheGeneration = 0
     @ObservationIgnored private var documentRowCache = DocumentRowCache()
@@ -280,6 +284,7 @@ final class DocumentPaneViewModel: Identifiable {
         showHistogramSheet = false
         showBinarySheet = false
         showFindSheet = false
+        cancelFindSearch()
         findSession = nil
         binarySelectionStart = 0
         binarySelectionEnd = 0
@@ -836,86 +841,189 @@ final class DocumentPaneViewModel: Identifiable {
     }
 
     func closeFindSheet() {
+        cancelFindSearch()
         showFindSheet = false
         findSession = nil
     }
 
-    func performFind(
+    func startFind(
         input: String,
         mode: FindPatternMode,
         entireFile: Bool,
         direction: FindDirection
-    ) -> FindResult {
+    ) {
         switch BytePatternSearch.pattern(from: input, mode: mode) {
         case .failure:
-            return .notFound
+            cancelFindSearch()
+            findSession = nil
         case .success(let pattern):
+            beginFindSearch()
+
+            let generation = findGeneration
             let cursor = selectedOffset ?? 0
-            let matches = BytePatternSearch.search(
-                pattern: pattern,
-                fileSize: fileSize,
-                bytesProvider: { [weak self] range in
-                    self?.bytes(in: range) ?? []
-                },
+            let fileSizeSnapshot = fileSize
+            guard let document else {
+                finishFindSearch(generation: generation)
+                return
+            }
+
+            let byteArray = document.byteArray
+            let range = BytePatternSearch.searchRange(
+                fileSize: fileSizeSnapshot,
                 entireFile: entireFile,
                 direction: direction,
                 cursor: cursor
             )
+            let shouldReverse = !entireFile && direction == .up
+            let navigateOnFirstMatch = entireFile || direction == .down
 
-            guard let first = matches.first else {
-                findSession = FindSession(
+            let bytesProvider = Self.makeFindBytesProvider(byteArray: byteArray)
+
+            findSearchTask = Task.detached(priority: .userInitiated) {
+                var lastUIUpdate = ContinuousClock.now
+                let uiInterval: Duration = .milliseconds(50)
+                var didNavigate = false
+
+                let matches = await BytePatternSearch.findAllIncremental(
                     pattern: pattern,
-                    mode: mode,
-                    entireFile: entireFile,
-                    direction: direction,
-                    matches: [],
-                    currentIndex: -1
-                )
-                return .notFound
-            }
+                    in: range,
+                    bytesProvider: bytesProvider,
+                    onProgress: { progress in
+                        let now = ContinuousClock.now
+                        guard progress >= 1.0 || now - lastUIUpdate >= uiInterval else { return }
+                        lastUIUpdate = now
 
-            let session = FindSession(
-                pattern: pattern,
-                mode: mode,
-                entireFile: entireFile,
-                direction: direction,
-                matches: matches,
-                currentIndex: 0
-            )
-            findSession = session
-            navigateToFindOffset(first)
-            return .found(session)
+                        await MainActor.run {
+                            guard generation == self.findGeneration else { return }
+                            self.findProgress = progress
+                        }
+                    },
+                    onMatch: { offset in
+                        await MainActor.run {
+                            guard generation == self.findGeneration else { return }
+
+                            if var session = self.findSession,
+                               session.pattern == pattern,
+                               session.mode == mode,
+                               session.entireFile == entireFile,
+                               session.direction == direction {
+                                if !session.matches.contains(offset) {
+                                    session.matches.append(offset)
+                                }
+                                session.isScanningComplete = false
+                                self.findSession = session
+                            } else {
+                                self.findSession = FindSession(
+                                    pattern: pattern,
+                                    mode: mode,
+                                    entireFile: entireFile,
+                                    direction: direction,
+                                    matches: [offset],
+                                    currentIndex: 0,
+                                    isScanningComplete: false
+                                )
+                            }
+
+                            if navigateOnFirstMatch, !didNavigate {
+                                didNavigate = true
+                                self.navigateToFindOffset(offset)
+                            }
+                        }
+                    }
+                )
+
+                let finalMatches = shouldReverse ? Array(matches.reversed()) : matches
+
+                await MainActor.run {
+                    guard !Task.isCancelled, generation == self.findGeneration else { return }
+                    self.finishFindSearch(generation: generation)
+
+                    if finalMatches.isEmpty {
+                        self.findSession = FindSession(
+                            pattern: pattern,
+                            mode: mode,
+                            entireFile: entireFile,
+                            direction: direction,
+                            matches: [],
+                            currentIndex: -1,
+                            isScanningComplete: true
+                        )
+                        return
+                    }
+
+                    self.findSession = FindSession(
+                        pattern: pattern,
+                        mode: mode,
+                        entireFile: entireFile,
+                        direction: direction,
+                        matches: finalMatches,
+                        currentIndex: 0,
+                        isScanningComplete: true
+                    )
+
+                    if !navigateOnFirstMatch {
+                        self.navigateToFindOffset(finalMatches[0])
+                    }
+                }
+            }
         }
     }
 
-    @discardableResult
-    func findNext() -> FindResult {
-        guard var session = findSession else { return .notFound }
+    func startFindNext() {
+        guard let session = findSession else { return }
 
+        beginFindSearch()
+        let generation = findGeneration
         let afterOffset = session.currentMatch ?? selectedOffset ?? 0
-        guard let nextOffset = BytePatternSearch.findNext(
-            pattern: session.pattern,
-            fileSize: fileSize,
-            bytesProvider: { [weak self] range in
-                self?.bytes(in: range) ?? []
-            },
-            entireFile: session.entireFile,
-            direction: session.direction,
-            afterOffset: afterOffset
-        ) else {
-            return .notFound
+
+        guard let document else {
+            finishFindSearch(generation: generation)
+            return
         }
 
-        if let existingIndex = session.matches.firstIndex(of: nextOffset) {
-            session.currentIndex = existingIndex
-        } else {
-            session.matches.append(nextOffset)
-            session.currentIndex = session.matches.count - 1
-        }
+        let byteArray = document.byteArray
+        let fileSizeSnapshot = fileSize
+        let pattern = session.pattern
+        let entireFile = session.entireFile
+        let direction = session.direction
 
-        findSession = session
-        navigateToFindOffset(nextOffset)
-        return .found(session)
+        let bytesProvider = Self.makeFindBytesProvider(byteArray: byteArray)
+
+        findSearchTask = Task.detached(priority: .userInitiated) {
+            let nextOffset = BytePatternSearch.findNext(
+                pattern: pattern,
+                fileSize: fileSizeSnapshot,
+                bytesProvider: bytesProvider,
+                entireFile: entireFile,
+                direction: direction,
+                afterOffset: afterOffset
+            )
+
+            await MainActor.run {
+                guard !Task.isCancelled, generation == self.findGeneration else { return }
+                self.finishFindSearch(generation: generation)
+
+                guard var updatedSession = self.findSession else { return }
+
+                guard let nextOffset else { return }
+
+                if let existingIndex = updatedSession.matches.firstIndex(of: nextOffset) {
+                    updatedSession.currentIndex = existingIndex
+                } else {
+                    updatedSession.matches.append(nextOffset)
+                    if updatedSession.entireFile || updatedSession.direction == .down {
+                        updatedSession.matches.sort()
+                    } else {
+                        updatedSession.matches.sort(by: >)
+                    }
+                    updatedSession.currentIndex = updatedSession.matches.firstIndex(of: nextOffset) ?? 0
+                }
+
+                updatedSession.isScanningComplete = true
+                self.findSession = updatedSession
+                self.navigateToFindOffset(nextOffset)
+            }
+        }
     }
 
     @discardableResult
@@ -949,6 +1057,42 @@ final class DocumentPaneViewModel: Identifiable {
     private func navigateToFindOffset(_ offset: Int) {
         selection = .single(at: offset)
         scrollTargetOffset = offset
+    }
+
+    nonisolated private static func makeFindBytesProvider(byteArray: BTreeByteArray) -> (Range<Int>) -> [UInt8] {
+        { range in
+            guard !Task.isCancelled else { return [] }
+            return byteArray.bytes(in: UInt64(range.lowerBound)..<UInt64(range.upperBound))
+        }
+    }
+
+    private func beginFindSearch() {
+        findSearchTask?.cancel()
+        findGeneration &+= 1
+        isFindLoading = true
+        findProgress = 0
+    }
+
+    private func cancelFindSearch() {
+        findSearchTask?.cancel()
+        findSearchTask = nil
+        findGeneration &+= 1
+        isFindLoading = false
+        findProgress = 0
+    }
+
+    func stopFind() {
+        cancelFindSearch()
+        if var session = findSession {
+            session.isScanningComplete = true
+            findSession = session
+        }
+    }
+
+    private func finishFindSearch(generation: Int) {
+        guard generation == findGeneration else { return }
+        isFindLoading = false
+        findProgress = 1
     }
 
     func executeTerminalCommand(_ input: String) {
