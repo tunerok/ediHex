@@ -740,4 +740,184 @@ final class ByteCompareServiceTests: XCTestCase {
         )
         XCTAssertEqual(previous, 17)
     }
+
+    func testFindNextDiffOffsetSkipsWithinMultiByteRegion() {
+        let left = Array(repeating: UInt8(0x00), count: 32)
+        var right = Array(repeating: UInt8(0x00), count: 32)
+        for index in 10...15 {
+            right[index] = 0xFF
+        }
+        right[20] = 0xFF
+
+        let index = ByteCompareService.buildDiffChunkIndexIncremental(
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) },
+            bucketCount: 4,
+            chunkSize: 32
+        )
+
+        let nextFromRegionStart = ByteCompareService.findNextDiffOffset(
+            after: 10,
+            chunkIndex: index,
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) }
+        )
+        XCTAssertEqual(nextFromRegionStart, 20)
+
+        let nextFromRegionMiddle = ByteCompareService.findNextDiffOffset(
+            after: 13,
+            chunkIndex: index,
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) }
+        )
+        XCTAssertEqual(nextFromRegionMiddle, 20)
+    }
+
+    func testFindPreviousDiffOffsetWithinMultiByteRegion() {
+        let left = Array(repeating: UInt8(0x00), count: 32)
+        var right = Array(repeating: UInt8(0x00), count: 32)
+        for index in 10...15 {
+            right[index] = 0xFF
+        }
+        right[20] = 0xFF
+
+        let index = ByteCompareService.buildDiffChunkIndexIncremental(
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) },
+            bucketCount: 4,
+            chunkSize: 32
+        )
+
+        let previousFromRegionMiddle = ByteCompareService.findPreviousDiffOffset(
+            before: 13,
+            chunkIndex: index,
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) }
+        )
+        XCTAssertEqual(previousFromRegionMiddle, 10)
+
+        let previousFromRegionStart = ByteCompareService.findPreviousDiffOffset(
+            before: 10,
+            chunkIndex: index,
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) }
+        )
+        XCTAssertNil(previousFromRegionStart)
+
+        let previousFromSecondRegion = ByteCompareService.findPreviousDiffOffset(
+            before: 20,
+            chunkIndex: index,
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) }
+        )
+        XCTAssertEqual(previousFromSecondRegion, 10)
+    }
+
+    func testFindNextDiffRegionStartMixedKinds() {
+        let left: [UInt8] = [0x00, 0x01, 0x02, 0x03]
+        let right: [UInt8] = [0x00, 0xFF]
+
+        let regions = ByteCompareService.buildDiffRegionsIncremental(
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) },
+            chunkSize: 8
+        )
+
+        XCTAssertEqual(regions.count, 2)
+        XCTAssertEqual(regions[0].start, 1)
+        XCTAssertEqual(regions[0].leftKind, .changed)
+        XCTAssertEqual(regions[1].start, 2)
+        XCTAssertEqual(regions[1].leftKind, .deleted)
+
+        let nextFromChanged = ByteCompareService.findNextDiffRegionStart(
+            after: 1,
+            in: regions
+        )
+        XCTAssertEqual(nextFromChanged, 2)
+
+        let previousFromDeleted = ByteCompareService.findPreviousDiffRegionStart(
+            before: 2,
+            in: regions
+        )
+        XCTAssertEqual(previousFromDeleted, 1)
+    }
+
+    func testFindNextDiffRegionStartChangedThenAdded() {
+        let left: [UInt8] = [0x00, 0x01]
+        let right: [UInt8] = [0x00, 0xFF, 0x03]
+
+        let regions = ByteCompareService.buildDiffRegionsIncremental(
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) },
+            chunkSize: 8
+        )
+
+        XCTAssertEqual(regions.count, 2)
+        XCTAssertEqual(regions[0].start, 1)
+        XCTAssertEqual(regions[1].start, 2)
+        XCTAssertEqual(regions[1].rightKind, .added)
+
+        XCTAssertEqual(
+            ByteCompareService.findNextDiffRegionStart(after: 1, in: regions),
+            2
+        )
+        XCTAssertEqual(
+            ByteCompareService.findPreviousDiffRegionStart(before: 2, in: regions),
+            1
+        )
+    }
+
+    func testFindNextDiffRegionStartSkipsCrossChunkChangedRun() {
+        let chunkSize = 8
+        let left = Array(repeating: UInt8(0x00), count: chunkSize + 4)
+        var right = Array(repeating: UInt8(0x00), count: chunkSize + 2)
+        for index in 6..<(chunkSize + 2) {
+            right[index] = 0xFF
+        }
+
+        let regions = ByteCompareService.buildDiffRegionsIncremental(
+            leftSize: left.count,
+            rightSize: right.count,
+            leftBytes: { range in Array(left[range]) },
+            rightBytes: { range in Array(right[range]) },
+            chunkSize: chunkSize
+        )
+
+        XCTAssertEqual(regions.count, 2)
+        XCTAssertEqual(regions[0].start, 6)
+        XCTAssertEqual(regions[0].end, chunkSize + 1)
+        XCTAssertEqual(regions[0].leftKind, .changed)
+        XCTAssertEqual(regions[1].start, chunkSize + 2)
+        XCTAssertEqual(regions[1].leftKind, .deleted)
+
+        let nextFromFirstHalf = ByteCompareService.findNextDiffRegionStart(
+            after: 7,
+            in: regions
+        )
+        XCTAssertEqual(nextFromFirstHalf, chunkSize + 2)
+
+        let nextFromChunkBoundary = ByteCompareService.findNextDiffRegionStart(
+            after: chunkSize - 1,
+            in: regions
+        )
+        XCTAssertEqual(nextFromChunkBoundary, chunkSize + 2)
+    }
 }

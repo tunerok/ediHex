@@ -9,6 +9,8 @@ struct CompareMinimapView: View {
     let diffMap: CompareDiffMap?
     let isLoading: Bool
     let progress: Double?
+    let scanFraction: Double?
+    let totalBytes: Int
     let visibleRowRange: ClosedRange<Int>
     let rowCount: Int
     let onNavigate: (Int) -> Void
@@ -39,7 +41,7 @@ struct CompareMinimapView: View {
                 if isLoading {
                     scanProgressIndicator(
                         height: geometry.size.height,
-                        progress: progress ?? 0
+                        fraction: scanFraction ?? progress ?? 0
                     )
                 }
 
@@ -71,9 +73,16 @@ struct CompareMinimapView: View {
         .background(.bar)
     }
 
+    private var revealedByteOffset: Int? {
+        guard isLoading, totalBytes > 0 else { return nil }
+        let fraction = scanFraction ?? progress ?? 0
+        return Int(fraction * Double(totalBytes))
+    }
+
     private func minimapStrip(kinds: [DiffRegionKind], height: CGFloat) -> some View {
         Canvas { context, size in
             let bucketCount = max(kinds.count, 1)
+            let mapTotalBytes = diffMap?.totalBytes ?? totalBytes
 
             context.fill(
                 Path(CGRect(origin: .zero, size: size)),
@@ -83,6 +92,12 @@ struct CompareMinimapView: View {
             for index in 0..<bucketCount {
                 let kind = kinds[safe: index] ?? .equal
                 guard kind != .equal else { continue }
+
+                if let revealedByteOffset,
+                   mapTotalBytes > 0 {
+                    let bucketStart = (index * mapTotalBytes) / bucketCount
+                    guard bucketStart < revealedByteOffset else { continue }
+                }
 
                 let centerY = (CGFloat(index) + 0.5) / CGFloat(bucketCount) * size.height
                 let proportionalHeight = size.height / CGFloat(bucketCount)
@@ -103,13 +118,13 @@ struct CompareMinimapView: View {
         .clipShape(RoundedRectangle(cornerRadius: 2))
     }
 
-    private func scanProgressIndicator(height: CGFloat, progress: Double) -> some View {
-        let fraction = CGFloat(min(1, max(0, progress)))
+    private func scanProgressIndicator(height: CGFloat, fraction: Double) -> some View {
+        let clamped = CGFloat(min(1, max(0, fraction)))
 
         return Capsule()
             .fill(Color.primary.opacity(0.55))
             .frame(width: stripWidth * 2 + stripGap, height: scanProgressLineHeight)
-            .offset(y: fraction * height - scanProgressLineHeight / 2)
+            .offset(y: clamped * height - scanProgressLineHeight / 2)
             .allowsHitTesting(false)
     }
 

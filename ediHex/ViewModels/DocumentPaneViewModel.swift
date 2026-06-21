@@ -53,13 +53,16 @@ final class DocumentPaneViewModel: Identifiable {
     private(set) var dataRevision = 0
     private(set) var comparisonDiffMap: CompareDiffMap?
     private(set) var comparisonDiffChunkIndex: CompareDiffChunkIndex?
+    private(set) var comparisonDiffRegions: [DiffRegion] = []
     private(set) var comparisonCurrentDiffOffset: Int?
     private(set) var canNavigatePreviousDiff = false
     private(set) var canNavigateNextDiff = false
     private(set) var isDiffMapLoading = false
     private(set) var diffMapProgress: Double = 0
+    private(set) var diffMapScanFraction: Double = 0
     private(set) var comparisonRowRevision = 0
     @ObservationIgnored private var comparisonDiffMapGeneration = 0
+    @ObservationIgnored private var comparisonNavGeneration = 0
     private(set) var isHistogramLoading = false
     private(set) var histogramProgress: Double = 0
     @ObservationIgnored private var histogramGeneration = 0
@@ -143,17 +146,16 @@ final class DocumentPaneViewModel: Identifiable {
     }
 
     var comparisonDiffCount: Int {
-        comparisonDiffChunkIndex?.diffChunkStarts.count ?? 0
+        comparisonDiffRegions.count
     }
 
     var comparisonHasDifferences: Bool {
-        comparisonDiffChunkIndex?.hasDifferences ?? false
+        !comparisonDiffRegions.isEmpty
     }
 
-    var comparisonCurrentDiffIndex: Int? {
-        guard let offset = comparisonCurrentDiffOffset,
-              let chunkIndex = comparisonDiffChunkIndex else { return nil }
-        return ByteCompareService.diffChunkIndex(for: offset, in: chunkIndex)
+    var comparisonCurrentDiffRegionIndex: Int? {
+        guard let offset = comparisonCurrentDiffOffset else { return nil }
+        return ByteCompareService.diffRegionIndex(for: offset, in: comparisonDiffRegions)
     }
 
     var selectedOffset: Int? {
@@ -227,9 +229,11 @@ final class DocumentPaneViewModel: Identifiable {
         guard case .comparison(let left, let right) = paneMode else {
             comparisonDiffMap = nil
             comparisonDiffChunkIndex = nil
+            comparisonDiffRegions = []
             comparisonCurrentDiffOffset = nil
             isDiffMapLoading = false
             diffMapProgress = 0
+            diffMapScanFraction = 0
             return
         }
 
@@ -237,8 +241,10 @@ final class DocumentPaneViewModel: Identifiable {
         let generation = comparisonDiffMapGeneration
         isDiffMapLoading = true
         diffMapProgress = 0
+        diffMapScanFraction = 0
         comparisonDiffMap = nil
         comparisonDiffChunkIndex = nil
+        comparisonDiffRegions = []
         comparisonCurrentDiffOffset = nil
 
         let leftArray = left.byteArray
@@ -275,12 +281,40 @@ final class DocumentPaneViewModel: Identifiable {
                           case .comparison = self.paneMode else { return }
                     self.comparisonDiffChunkIndex = partialIndex
                     self.comparisonDiffMap = partialIndex.map
-                    self.diffMapProgress = progress
+                    self.diffMapScanFraction = progress
+                    self.diffMapProgress = progress * 0.5
+                }
+            }
+
+            let regions = ByteCompareService.buildDiffRegionsIncremental(
+                leftSize: leftSize,
+                rightSize: rightSize,
+                leftBytes: leftBytes,
+                rightBytes: rightBytes,
+                chunkSize: chunkIndex.chunkSize
+            ) { partialRegions, progress in
+                let now = ContinuousClock.now
+                guard progress >= 1.0 || now - lastUIUpdate >= uiInterval else { return }
+                lastUIUpdate = now
+
+                Task { @MainActor in
+                    guard generation == self.comparisonDiffMapGeneration,
+                          case .comparison = self.paneMode else { return }
+                    self.comparisonDiffRegions = partialRegions
+                    self.diffMapScanFraction = progress
+                    self.diffMapProgress = 0.5 + progress * 0.5
                 }
             }
 
             let finalIndex: CompareDiffChunkIndex
             if usePreciseMap {
+                await MainActor.run {
+                    guard generation == self.comparisonDiffMapGeneration,
+                          case .comparison = self.paneMode else { return }
+                    self.diffMapProgress = 0.95
+                    self.diffMapScanFraction = 1
+                }
+
                 let preciseMap = ByteCompareService.buildDiffMapIncremental(
                     leftSize: leftSize,
                     rightSize: rightSize,
@@ -304,8 +338,10 @@ final class DocumentPaneViewModel: Identifiable {
                       case .comparison = self.paneMode else { return }
                 self.comparisonDiffChunkIndex = finalIndex
                 self.comparisonDiffMap = finalIndex.map
+                self.comparisonDiffRegions = regions
                 self.isDiffMapLoading = false
                 self.diffMapProgress = 1
+                self.diffMapScanFraction = 1
                 self.refreshDiffNavigationState()
                 Task {
                     await self.loadComparisonRows(
@@ -320,17 +356,26 @@ final class DocumentPaneViewModel: Identifiable {
 
     func navigateToNextDiff() -> Bool {
         guard case .comparison(let left, let right) = paneMode,
-              let chunkIndex = comparisonDiffChunkIndex else { return false }
+              comparisonDiffChunkIndex != nil else { return false }
 
-        let after = comparisonCurrentDiffOffset ?? -1
-        guard let offset = ByteCompareService.findNextDiffOffsetWrapping(
-            after: after,
-            chunkIndex: chunkIndex,
-            leftSize: left.fileSize,
-            rightSize: right.fileSize,
-            leftBytes: comparisonBytesProvider(side: .left),
-            rightBytes: comparisonBytesProvider(side: .right)
-        ) else { return false }
+        let after = comparisonCurrentDiffOffset ?? selectedOffset ?? -1
+        let offset: Int?
+        if !comparisonDiffRegions.isEmpty {
+            offset = ByteCompareService.findNextDiffRegionStartWrapping(
+                after: after,
+                in: comparisonDiffRegions
+            )
+        } else {
+            offset = ByteCompareService.findNextDiffOffsetWrapping(
+                after: after,
+                chunkIndex: comparisonDiffChunkIndex!,
+                leftSize: left.fileSize,
+                rightSize: right.fileSize,
+                leftBytes: comparisonBytesProvider(side: .left),
+                rightBytes: comparisonBytesProvider(side: .right)
+            )
+        }
+        guard let offset else { return false }
 
         navigateToDiff(at: offset)
         refreshDiffNavigationState()
@@ -339,17 +384,26 @@ final class DocumentPaneViewModel: Identifiable {
 
     func navigateToPreviousDiff() -> Bool {
         guard case .comparison(let left, let right) = paneMode,
-              let chunkIndex = comparisonDiffChunkIndex else { return false }
+              comparisonDiffChunkIndex != nil else { return false }
 
-        let before = comparisonCurrentDiffOffset ?? fileSize
-        guard let offset = ByteCompareService.findPreviousDiffOffsetWrapping(
-            before: before,
-            chunkIndex: chunkIndex,
-            leftSize: left.fileSize,
-            rightSize: right.fileSize,
-            leftBytes: comparisonBytesProvider(side: .left),
-            rightBytes: comparisonBytesProvider(side: .right)
-        ) else { return false }
+        let before = comparisonCurrentDiffOffset ?? selectedOffset ?? fileSize
+        let offset: Int?
+        if !comparisonDiffRegions.isEmpty {
+            offset = ByteCompareService.findPreviousDiffRegionStartWrapping(
+                before: before,
+                in: comparisonDiffRegions
+            )
+        } else {
+            offset = ByteCompareService.findPreviousDiffOffsetWrapping(
+                before: before,
+                chunkIndex: comparisonDiffChunkIndex!,
+                leftSize: left.fileSize,
+                rightSize: right.fileSize,
+                leftBytes: comparisonBytesProvider(side: .left),
+                rightBytes: comparisonBytesProvider(side: .right)
+            )
+        }
+        guard let offset else { return false }
 
         navigateToDiff(at: offset)
         refreshDiffNavigationState()
@@ -358,13 +412,15 @@ final class DocumentPaneViewModel: Identifiable {
 
     func navigateToDiff(at offset: Int) {
         guard offset >= 0, offset < fileSize else { return }
+        comparisonNavGeneration &+= 1
+        let generation = comparisonNavGeneration
         comparisonCurrentDiffOffset = offset
         let selection = HexSelection.single(at: offset)
         comparisonLeftSelection = selection
         comparisonRightSelection = selection
         comparisonActiveSide = .left
-        clearScrollTarget()
-        clearScrollReveal()
+        scrollTargetOffset = offset
+        scrollRevealOffset = offset
         let row = offset / bytesPerRow.rawValue
         Task {
             await loadComparisonRows(
@@ -372,9 +428,7 @@ final class DocumentPaneViewModel: Identifiable {
                 radius: HexScrollWindow.prefetchMargin,
                 cancelPrevious: true
             )
-            scrollSessionID &+= 1
-            scrollTargetOffset = offset
-            scrollRevealOffset = offset
+            guard generation == self.comparisonNavGeneration else { return }
         }
     }
 
@@ -389,8 +443,9 @@ final class DocumentPaneViewModel: Identifiable {
     }
 
     private func refreshDiffNavigationState() {
-        guard let chunkIndex = comparisonDiffChunkIndex,
-              chunkIndex.hasDifferences else {
+        let hasDifferences = !comparisonDiffRegions.isEmpty
+            || (comparisonDiffChunkIndex?.hasDifferences ?? false)
+        guard hasDifferences else {
             canNavigatePreviousDiff = false
             canNavigateNextDiff = false
             return
@@ -592,7 +647,9 @@ final class DocumentPaneViewModel: Identifiable {
 
     func navigateComparison(to row: Int) {
         guard row >= 0, row < rowCount else { return }
-        scrollTargetOffset = row * bytesPerRow.rawValue
+        let offset = row * bytesPerRow.rawValue
+        scrollTargetOffset = offset
+        scrollRevealOffset = offset
         Task {
             await loadComparisonRows(around: row, radius: 64, cancelPrevious: true)
         }
@@ -710,6 +767,7 @@ final class DocumentPaneViewModel: Identifiable {
         case .right:
             comparisonRightSelection = selection
         }
+        comparisonCurrentDiffOffset = selection.active
     }
 
     func addHighlight(color: HighlightColor) {
@@ -1584,11 +1642,13 @@ final class DocumentPaneViewModel: Identifiable {
         comparisonActiveSide = .left
         comparisonDiffMap = nil
         comparisonDiffChunkIndex = nil
+        comparisonDiffRegions = []
         comparisonCurrentDiffOffset = nil
         canNavigatePreviousDiff = false
         canNavigateNextDiff = false
         isDiffMapLoading = false
         diffMapProgress = 0
+        diffMapScanFraction = 0
         comparisonDiffMapGeneration &+= 1
         comparisonRowLoadTask?.cancel()
         comparisonRowLoadTask = nil

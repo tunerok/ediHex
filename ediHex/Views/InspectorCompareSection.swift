@@ -10,7 +10,8 @@ struct CompareInspectorState {
     let rightName: String
     let isLoading: Bool
     let progress: Double?
-    let diffCount: Int
+    let diffRegionCount: Int
+    let currentDiffRegionIndex: Int?
     let currentDiffOffset: Int?
     let canNavigatePrevious: Bool
     let canNavigateNext: Bool
@@ -47,14 +48,19 @@ struct InspectorCompareSection: View {
                 } else {
                     ProgressView(String(localized: "Scanning differences…"))
                 }
-            } else if state.diffCount == 0 {
+            } else if state.diffRegionCount == 0 {
                 Text(String(localized: "Files are identical."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
-                LabeledContent(String(localized: "Differing chunks")) {
-                    Text("\(state.diffCount)")
-                        .font(.callout.monospaced())
+                LabeledContent(String(localized: "Diff regions")) {
+                    if let index = state.currentDiffRegionIndex {
+                        Text("\(index + 1) / \(state.diffRegionCount)")
+                            .font(.callout.monospaced())
+                    } else {
+                        Text("\(state.diffRegionCount)")
+                            .font(.callout.monospaced())
+                    }
                 }
 
                 if let offset = state.currentDiffOffset {
@@ -88,7 +94,8 @@ struct InspectorCompareSection: View {
                 rightName: "firmware_patched.bin",
                 isLoading: false,
                 progress: nil,
-                diffCount: 12,
+                diffRegionCount: 12,
+                currentDiffRegionIndex: 2,
                 currentDiffOffset: 0x1A40,
                 canNavigatePrevious: true,
                 canNavigateNext: true,
