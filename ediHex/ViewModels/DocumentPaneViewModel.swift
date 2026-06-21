@@ -145,6 +145,11 @@ final class DocumentPaneViewModel: Identifiable {
         return right.displayName
     }
 
+    func comparisonFileSize(for side: CompareSide) -> Int {
+        guard case .comparison(let left, let right) = paneMode else { return fileSize }
+        return side == .left ? left.fileSize : right.fileSize
+    }
+
     var comparisonDiffCount: Int {
         comparisonDiffRegions.count
     }
@@ -511,9 +516,14 @@ final class DocumentPaneViewModel: Identifiable {
             comparisonRowLoadTask = nil
             comparisonRowLoadGeneration &+= 1
 
-            if let offset = comparisonCurrentDiffOffset ?? selectedOffset {
-                scrollRevealOffset = offset
+            let bpr = max(1, setting.rawValue)
+            let reloadRow: Int
+            if let offset = comparisonCurrentDiffOffset ?? selectedOffset ?? scrollRevealOffset ?? scrollTargetOffset {
+                reloadRow = min(max(0, rowCount - 1), max(0, offset / bpr))
+            } else {
+                reloadRow = max(0, rowCount - 1)
             }
+            Task { await loadComparisonRows(around: reloadRow, radius: 64, force: true) }
         }
         bumpDataRevision()
     }
@@ -684,7 +694,7 @@ final class DocumentPaneViewModel: Identifiable {
             force || rowRange.contains { compareRowCache.context(for: $0) == nil }
         }
 
-        #if DEBUG
+        #if DEBUG_VIEW
         print(
             "[compare-row-load] request row=\(row) radius=\(radius) force=\(force) " +
             "cancelPrevious=\(cancelPrevious) bpr=\(bytesPerRow.rawValue) rowRange=\(rowRange) " +
@@ -693,7 +703,7 @@ final class DocumentPaneViewModel: Identifiable {
         )
         #endif
         guard rowsNeedLoad() else {
-            #if DEBUG
+            #if DEBUG_VIEW
             print("[compare-row-load] skipped: needsLoad=false")
             #endif
             return
@@ -702,7 +712,7 @@ final class DocumentPaneViewModel: Identifiable {
         if comparisonRowLoadTask != nil {
             await comparisonRowLoadTask?.value
             guard rowsNeedLoad() else {
-                #if DEBUG
+                #if DEBUG_VIEW
                 print("[compare-row-load] skipped: satisfied by in-flight load")
                 #endif
                 return
@@ -731,7 +741,7 @@ final class DocumentPaneViewModel: Identifiable {
                 rightSize: rightSize
             )
 
-            #if DEBUG
+            #if DEBUG_VIEW
             let batchSummary = batch.map { row, context in
                 let span = context.leftDiffSpans?.first
                 return "row=\(row) left=\(context.leftBytes.count) right=\(context.rightBytes.count) spanCol=\(span?.startColumn ?? -1)"
@@ -745,7 +755,7 @@ final class DocumentPaneViewModel: Identifiable {
 
             await MainActor.run {
                 if cacheGeneration != self.compareRowCacheGeneration {
-                    #if DEBUG
+                    #if DEBUG_VIEW
                     print(
                         "[compare-row-load] skipped store: cache generation mismatch " +
                         "captured=\(cacheGeneration) current=\(self.compareRowCacheGeneration)"
@@ -754,7 +764,7 @@ final class DocumentPaneViewModel: Identifiable {
                     return
                 }
                 if loadGeneration != self.comparisonRowLoadGeneration {
-                    #if DEBUG
+                    #if DEBUG_VIEW
                     print(
                         "[compare-row-load] skipped store: load generation mismatch " +
                         "captured=\(loadGeneration) current=\(self.comparisonRowLoadGeneration)"
@@ -763,20 +773,20 @@ final class DocumentPaneViewModel: Identifiable {
                     return
                 }
                 guard case .comparison = self.paneMode else {
-                    #if DEBUG
+                    #if DEBUG_VIEW
                     print("[compare-row-load] skipped store: pane is not in comparison mode")
                     #endif
                     return
                 }
                 if batch.isEmpty {
-                    #if DEBUG
+                    #if DEBUG_VIEW
                     print("[compare-row-load] skipped store: batch is empty")
                     #endif
                     return
                 }
                 let storedRows = self.compareRowCache.storeBatch(batch)
                 self.comparisonRowRevision &+= 1
-                #if DEBUG
+                #if DEBUG_VIEW
                 print(
                     "[compare-row-load] stored rows=\(storedRows) " +
                     "comparisonRowRevision=\(self.comparisonRowRevision)"
@@ -817,7 +827,7 @@ final class DocumentPaneViewModel: Identifiable {
         let offset = HexFormatter.rowOffset(for: rowIndex, bytesPerRow: bytesPerRow.rawValue)
         let count = HexFormatter.byteCount(
             forRow: rowIndex,
-            fileSize: fileSize,
+            fileSize: doc.fileSize,
             bytesPerRow: bytesPerRow.rawValue
         )
         guard count > 0 else { return [] }
@@ -1539,9 +1549,11 @@ final class DocumentPaneViewModel: Identifiable {
         if nextOffset < fileSize {
             editingOffset = nextOffset
             selection = .single(at: nextOffset)
+            scrollRevealOffset = nextOffset
         } else {
-            editingOffset = fileSize - 1
+            editingOffset = fileSize
             selection = .single(at: fileSize - 1)
+            scrollRevealOffset = fileSize - 1
         }
     }
 

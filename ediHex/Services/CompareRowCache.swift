@@ -131,7 +131,7 @@ enum CompareRowLoader {
         let lastRowOffset = HexFormatter.rowOffset(for: lastRow, bytesPerRow: bytesPerRow)
         let lastRowCount = HexFormatter.byteCount(
             forRow: lastRow,
-            fileSize: fileSize,
+            fileSize: docSize,
             bytesPerRow: bytesPerRow
         )
         let endOffset = min(lastRowOffset + lastRowCount, docSize)
@@ -145,7 +145,7 @@ enum CompareRowLoader {
             let offset = HexFormatter.rowOffset(for: row, bytesPerRow: bytesPerRow)
             let count = HexFormatter.byteCount(
                 forRow: row,
-                fileSize: fileSize,
+                fileSize: docSize,
                 bytesPerRow: bytesPerRow
             )
             guard count > 0, offset >= startOffset else { continue }

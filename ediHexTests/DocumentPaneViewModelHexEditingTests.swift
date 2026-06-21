@@ -103,7 +103,21 @@ struct DocumentPaneViewModelHexEditingTests {
         #expect(pane.editingOffset == 0)
     }
 
-    @Test func editingLastByteDoesNotGrowFile() throws {
+    @Test func appendAfterLastByteEntersAppendMode() throws {
+        let (pane, url) = try makePaneWithFile(Data([0x00, 0x01, 0x02]))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        pane.beginSelection(at: 2)
+        pane.endSelection(at: 2)
+        typePair(pane, high: "A", low: "A")
+
+        #expect(pane.fileSize == 3)
+        #expect(pane.byte(at: 2) == 0xAA)
+        #expect(pane.editingOffset == 3)
+        #expect(pane.selection?.start == 2)
+    }
+
+    @Test func appendAfterLastByteGrowsFileOnFirstNibble() throws {
         let (pane, url) = try makePaneWithFile(Data([0x00, 0x01, 0x02]))
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -112,10 +126,42 @@ struct DocumentPaneViewModelHexEditingTests {
         typePair(pane, high: "A", low: "A")
         pane.typeHexDigit("1")
 
-        #expect(pane.fileSize == 3)
+        #expect(pane.fileSize == 4)
         #expect(pane.byte(at: 2) == 0xAA)
-        #expect(pane.editingOffset == 2)
-        #expect(pane.selection?.start == 2)
+        #expect(pane.byte(at: 3) == 0x00)
+        #expect(pane.editingOffset == 3)
+        #expect(pane.editingHexText == "1")
+    }
+
+    @Test func sequentialAppendAddsBytes() throws {
+        let (pane, url) = try makePaneWithFile(Data([0x00, 0x01, 0x02]))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        pane.beginSelection(at: 2)
+        pane.endSelection(at: 2)
+        typePair(pane, high: "A", low: "A")
+        typePair(pane, high: "B", low: "B")
+
+        #expect(pane.fileSize == 4)
+        #expect(pane.byte(at: 2) == 0xAA)
+        #expect(pane.byte(at: 3) == 0xBB)
+        #expect(pane.editingOffset == 4)
+        #expect(pane.selection?.start == 3)
+    }
+
+    @Test func appendCrossesRowBoundary() throws {
+        let (pane, url) = try makePaneWithFile(Data(repeating: 0x00, count: 16))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        pane.beginSelection(at: 15)
+        pane.endSelection(at: 15)
+        typePair(pane, high: "F", low: "F")
+        typePair(pane, high: "1", low: "0")
+
+        #expect(pane.fileSize == 17)
+        #expect(pane.rowCount == 2)
+        #expect(pane.byte(at: 15) == 0xFF)
+        #expect(pane.byte(at: 16) == 0x10)
     }
 
     @Test func saveAfterRepeatedHexTypingPersistsExactBytes() throws {

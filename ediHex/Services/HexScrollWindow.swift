@@ -121,6 +121,16 @@ struct HexScrollWindow: Equatable {
     mutating func clamp(for rowCount: Int) {
         firstVisibleRow = min(max(0, firstVisibleRow), maxFirstVisibleRow(for: rowCount))
     }
+
+    /// Keeps the last row visible when the viewport shrinks while already scrolled to the bottom.
+    mutating func maintainScrollAfterVisibleRowCountChange(from oldVisibleRowCount: Int, rowCount: Int) {
+        let oldMax = max(0, rowCount - max(1, oldVisibleRowCount))
+        if firstVisibleRow >= oldMax {
+            firstVisibleRow = maxFirstVisibleRow(for: rowCount)
+        } else {
+            clamp(for: rowCount)
+        }
+    }
 }
 
 enum HexScrollAnchor {
@@ -128,7 +138,7 @@ enum HexScrollAnchor {
     case center
 }
 
-#if DEBUG
+#if DEBUG_VIEW
 import os
 
 enum HexScrollLog {
