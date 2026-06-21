@@ -41,6 +41,8 @@ struct ComparePaneView: View {
                             diffMap: pane.comparisonDiffMap,
                             isLoading: pane.isDiffMapLoading,
                             progress: pane.isDiffMapLoading ? pane.diffMapProgress : nil,
+                            scanFraction: pane.isDiffMapLoading ? pane.diffMapScanFraction : nil,
+                            totalBytes: pane.fileSize,
                             visibleRowRange: visibleRowRange,
                             rowCount: pane.rowCount,
                             onNavigate: { row in

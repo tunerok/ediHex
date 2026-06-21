@@ -781,6 +781,82 @@ enum ByteCompareService {
         return regions.last?.start
     }
 
+    nonisolated static func diffRegionBounds(
+        containing offset: Int,
+        leftSize: Int,
+        rightSize: Int,
+        leftBytes: (Range<Int>) -> [UInt8],
+        rightBytes: (Range<Int>) -> [UInt8],
+        chunkSize: Int = ChunkedByteReader.defaultChunkSize
+    ) -> (start: Int, end: Int)? {
+        let total = max(leftSize, rightSize)
+        guard offset >= 0, offset < total else { return nil }
+
+        let chunkStart = (offset / chunkSize) * chunkSize
+        let chunkEnd = min(total, chunkStart + chunkSize)
+        let leftRange = clampedRange(from: chunkStart, to: min(leftSize, chunkEnd))
+        let rightRange = clampedRange(from: chunkStart, to: min(rightSize, chunkEnd))
+        let leftChunk = leftRange.isEmpty ? [] : leftBytes(leftRange)
+        let rightChunk = rightRange.isEmpty ? [] : rightBytes(rightRange)
+
+        var regions: [DiffRegion] = []
+        appendDiffRegions(
+            from: chunkStart,
+            to: chunkEnd,
+            leftSize: leftSize,
+            rightSize: rightSize,
+            leftChunk: leftChunk,
+            rightChunk: rightChunk,
+            leftChunkStart: leftRange.lowerBound,
+            rightChunkStart: rightRange.lowerBound,
+            regions: &regions
+        )
+
+        for region in regions where offset >= region.start && offset <= region.end {
+            return (region.start, region.end)
+        }
+        return nil
+    }
+
+    nonisolated static func endOfDiffRegion(
+        at offset: Int,
+        leftSize: Int,
+        rightSize: Int,
+        leftBytes: (Range<Int>) -> [UInt8],
+        rightBytes: (Range<Int>) -> [UInt8],
+        chunkSize: Int = ChunkedByteReader.defaultChunkSize
+    ) -> Int? {
+        diffRegionBounds(
+            containing: offset,
+            leftSize: leftSize,
+            rightSize: rightSize,
+            leftBytes: leftBytes,
+            rightBytes: rightBytes,
+            chunkSize: chunkSize
+        )?.end
+    }
+
+    nonisolated private static func nextDiffSearchStart(
+        after offset: Int,
+        leftSize: Int,
+        rightSize: Int,
+        leftBytes: (Range<Int>) -> [UInt8],
+        rightBytes: (Range<Int>) -> [UInt8],
+        chunkSize: Int
+    ) -> Int {
+        if let end = endOfDiffRegion(
+            at: offset,
+            leftSize: leftSize,
+            rightSize: rightSize,
+            leftBytes: leftBytes,
+            rightBytes: rightBytes,
+            chunkSize: chunkSize
+        ) {
+            return end + 1
+        }
+        return offset + 1
+    }
+
     nonisolated static func findNextDiffOffset(
         after offset: Int,
         chunkIndex: CompareDiffChunkIndex,
@@ -790,15 +866,23 @@ enum ByteCompareService {
         rightBytes: (Range<Int>) -> [UInt8]
     ) -> Int? {
         let total = chunkIndex.totalBytes
-        guard offset < total - 1 else { return nil }
-
         let chunkSize = chunkIndex.chunkSize
-        let currentChunkStart = (offset / chunkSize) * chunkSize
+        let searchStart = nextDiffSearchStart(
+            after: offset,
+            leftSize: leftSize,
+            rightSize: rightSize,
+            leftBytes: leftBytes,
+            rightBytes: rightBytes,
+            chunkSize: chunkSize
+        )
+        guard searchStart < total else { return nil }
+
+        let currentChunkStart = (searchStart / chunkSize) * chunkSize
         let currentChunkEnd = min(total, currentChunkStart + chunkSize)
 
-        if offset + 1 < currentChunkEnd,
+        if searchStart < currentChunkEnd,
            let found = findFirstDiffOffset(
-               in: (offset + 1)..<currentChunkEnd,
+               in: searchStart..<currentChunkEnd,
                leftSize: leftSize,
                rightSize: rightSize,
                leftBytes: leftBytes,
@@ -843,6 +927,18 @@ enum ByteCompareService {
 
         let total = chunkIndex.totalBytes
         let chunkSize = chunkIndex.chunkSize
+
+        if let bounds = diffRegionBounds(
+            containing: offset,
+            leftSize: leftSize,
+            rightSize: rightSize,
+            leftBytes: leftBytes,
+            rightBytes: rightBytes,
+            chunkSize: chunkSize
+        ), offset > bounds.start {
+            return bounds.start
+        }
+
         let currentChunkStart = (offset / chunkSize) * chunkSize
 
         if offset > currentChunkStart,
@@ -992,6 +1088,100 @@ enum ByteCompareService {
         }
 
         return result
+    }
+
+    nonisolated static func diffRegionIndex(
+        for offset: Int,
+        in regions: [DiffRegion]
+    ) -> Int? {
+        guard !regions.isEmpty else { return nil }
+
+        var low = 0
+        var high = regions.count - 1
+
+        while low <= high {
+            let mid = (low + high) / 2
+            let region = regions[mid]
+            if offset < region.start {
+                high = mid - 1
+            } else if offset > region.end {
+                low = mid + 1
+            } else {
+                return mid
+            }
+        }
+
+        return nil
+    }
+
+    nonisolated static func diffRegionBounds(
+        containing offset: Int,
+        in regions: [DiffRegion]
+    ) -> (start: Int, end: Int)? {
+        guard let index = diffRegionIndex(for: offset, in: regions) else { return nil }
+        let region = regions[index]
+        return (region.start, region.end)
+    }
+
+    nonisolated static func findNextDiffRegionStart(
+        after offset: Int,
+        in regions: [DiffRegion]
+    ) -> Int? {
+        guard !regions.isEmpty else { return nil }
+
+        if let index = diffRegionIndex(for: offset, in: regions) {
+            let nextIndex = index + 1
+            guard nextIndex < regions.count else { return nil }
+            return regions[nextIndex].start
+        }
+
+        for region in regions where region.start > offset {
+            return region.start
+        }
+        return nil
+    }
+
+    nonisolated static func findPreviousDiffRegionStart(
+        before offset: Int,
+        in regions: [DiffRegion]
+    ) -> Int? {
+        guard !regions.isEmpty, offset > 0 else { return nil }
+
+        if let index = diffRegionIndex(for: offset, in: regions) {
+            let region = regions[index]
+            if offset > region.start {
+                return region.start
+            }
+            let previousIndex = index - 1
+            guard previousIndex >= 0 else { return nil }
+            return regions[previousIndex].start
+        }
+
+        var result: Int?
+        for region in regions where region.start < offset {
+            result = region.start
+        }
+        return result
+    }
+
+    nonisolated static func findNextDiffRegionStartWrapping(
+        after offset: Int,
+        in regions: [DiffRegion]
+    ) -> Int? {
+        if let found = findNextDiffRegionStart(after: offset, in: regions) {
+            return found
+        }
+        return regions.first?.start
+    }
+
+    nonisolated static func findPreviousDiffRegionStartWrapping(
+        before offset: Int,
+        in regions: [DiffRegion]
+    ) -> Int? {
+        if let found = findPreviousDiffRegionStart(before: offset, in: regions) {
+            return found
+        }
+        return regions.last?.start
     }
 
     nonisolated static func formatTextReport(

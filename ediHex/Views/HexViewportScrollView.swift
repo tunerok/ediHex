@@ -66,6 +66,12 @@ struct HexViewportScrollView<RowContent: View, Overlay: View>: View {
         .clipped()
         .onAppear {
             reportVisibleState(window: scrollWindow)
+            if let scrollTargetRow {
+                applyScrollTarget(scrollTargetRow, anchor: scrollAnchor)
+            }
+            if let scrollRevealOffset {
+                applyScrollReveal(scrollRevealOffset)
+            }
         }
         .onChange(of: bytesPerRow) { oldValue, newValue in
             guard oldValue != newValue else { return }
