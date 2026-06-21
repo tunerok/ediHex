@@ -142,7 +142,6 @@ struct CompareHexGridView: View {
                 editingOffset: nil,
                 editingHexText: "",
                 textEncoding: pane.textEncoding,
-                highlightColor: { pane.diffHighlight(at: $0, side: .left) },
                 diffHexSpans: context.leftDiffSpans,
                 showsOffsetColumn: false
             )
@@ -159,7 +158,6 @@ struct CompareHexGridView: View {
                 editingOffset: nil,
                 editingHexText: "",
                 textEncoding: pane.textEncoding,
-                highlightColor: { pane.diffHighlight(at: $0, side: .right) },
                 diffHexSpans: context.rightDiffSpans,
                 showsOffsetColumn: false
             )

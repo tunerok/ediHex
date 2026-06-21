@@ -14,7 +14,6 @@ struct HexRowView: View, Equatable {
     let editingOffset: Int?
     let editingHexText: String
     let textEncoding: TextEncodingMode
-    let highlightColor: (Int) -> HighlightColor?
     let userHexSpans: [HexDiffSpan]?
     let diffHexSpans: [HexDiffSpan]?
     let showsOffsetColumn: Bool
@@ -28,7 +27,6 @@ struct HexRowView: View, Equatable {
         editingOffset: Int?,
         editingHexText: String,
         textEncoding: TextEncodingMode,
-        highlightColor: @escaping (Int) -> HighlightColor?,
         userHexSpans: [HexDiffSpan]? = nil,
         diffHexSpans: [HexDiffSpan]? = nil,
         showsOffsetColumn: Bool = true
@@ -41,7 +39,6 @@ struct HexRowView: View, Equatable {
         self.editingOffset = editingOffset
         self.editingHexText = editingHexText
         self.textEncoding = textEncoding
-        self.highlightColor = highlightColor
         self.userHexSpans = userHexSpans
         self.diffHexSpans = diffHexSpans
         self.showsOffsetColumn = showsOffsetColumn
@@ -69,29 +66,32 @@ struct HexRowView: View, Equatable {
         min(fileSize - 1, rowOffset + bytesPerRow - 1)
     }
 
-    private var usesDetailedCells: Bool {
-        if let editingOffset, editingOffset >= rowOffset, editingOffset <= rowEndOffset {
-            return true
-        }
-        if let selection, selection.end >= rowOffset, selection.start <= rowEndOffset {
-            return true
-        }
-        return false
-    }
-
     private var hexCanvasSpans: [HexDiffSpan]? {
         let merged = (userHexSpans ?? []) + (diffHexSpans ?? [])
         return merged.isEmpty ? nil : merged
     }
 
-    private var showHexHighlightCanvas: Bool {
-        guard !usesDetailedCells else { return false }
-        guard let hexCanvasSpans, !hexCanvasSpans.isEmpty else { return false }
-        return true
+    private var selectionSpans: [HexColumnSpan]? {
+        HexSelectionSpans.spans(
+            for: rowIndex,
+            bytesPerRow: bytesPerRow,
+            fileSize: fileSize,
+            selection: selection
+        )
     }
 
-    private func highlightForColumn(_ column: Int, offset: Int) -> HighlightColor? {
-        highlightColor(offset)
+    private var editingColumn: Int? {
+        guard let editingOffset,
+              editingOffset >= rowOffset,
+              editingOffset <= rowEndOffset else {
+            return nil
+        }
+        return editingOffset - rowOffset
+    }
+
+    private var editingHexPair: String? {
+        guard let editingColumn, editingColumn < bytes.count else { return nil }
+        return HexFormatter.hexPair(for: bytes[editingColumn])
     }
 
     var body: some View {
@@ -103,20 +103,12 @@ struct HexRowView: View, Equatable {
                     .frame(width: HexGridLayout.offsetColumnWidth, alignment: .leading)
             }
 
-            if usesDetailedCells {
-                detailedHexColumn
-            } else {
-                compactHexColumnWithHighlightOverlay
-            }
+            hexColumn
 
             Divider()
                 .padding(.horizontal, HexGridLayout.dividerHorizontalPadding)
 
-            if usesDetailedCells {
-                detailedTextColumn
-            } else {
-                compactTextColumn
-            }
+            textColumn
         }
         .frame(
             width: showsOffsetColumn ? nil : HexGridLayout.hexTextContentWidth(for: bytesPerRow),
@@ -125,72 +117,51 @@ struct HexRowView: View, Equatable {
         )
     }
 
-    private var compactHexColumnWithHighlightOverlay: some View {
+    private var hexColumn: some View {
         ZStack(alignment: .leading) {
-            compactHexColumn
-            if showHexHighlightCanvas, let hexCanvasSpans {
+            Text(compactHexLine)
+                .font(.body.monospaced())
+                .frame(width: HexFormatter.hexColumnWidth(for: bytesPerRow), alignment: .leading)
+
+            if let hexCanvasSpans {
                 HexHighlightCanvasOverlay(spans: hexCanvasSpans, bytesPerRow: bytesPerRow)
             }
+
+            if let selectionSpans {
+                HexSelectionCanvasOverlay(
+                    spans: selectionSpans,
+                    column: .hex,
+                    bytesPerRow: bytesPerRow
+                )
+            }
+
+            if let editingColumn, let editingHexPair {
+                HexEditingCellOverlay(
+                    column: editingColumn,
+                    hexText: editingHexPair,
+                    editingHexText: editingHexText,
+                    bytesPerRow: bytesPerRow
+                )
+            }
         }
         .padding(.leading, HexGridLayout.hexColumnLeadingPadding)
     }
 
-    private var compactHexColumn: some View {
-        Text(compactHexLine)
-            .font(.body.monospaced())
-            .frame(width: HexFormatter.hexColumnWidth(for: bytesPerRow), alignment: .leading)
-    }
+    private var textColumn: some View {
+        ZStack(alignment: .leading) {
+            Text(compactTextLine)
+                .font(.body.monospaced())
+                .frame(width: HexFormatter.textColumnWidth(for: bytesPerRow), alignment: .leading)
+                .lineLimit(1)
 
-    private var compactTextColumn: some View {
-        Text(compactTextLine)
-            .font(.body.monospaced())
-            .frame(width: HexFormatter.textColumnWidth(for: bytesPerRow), alignment: .leading)
-            .lineLimit(1)
-    }
-
-    private var detailedHexColumn: some View {
-        HStack(spacing: HexGridLayout.cellSpacing) {
-            ForEach(0..<bytesPerRow, id: \.self) { column in
-                let offset = rowOffset + column
-                if offset < fileSize, column < bytes.count {
-                    HexByteCellView(
-                        offset: offset,
-                        hexText: HexFormatter.hexPair(for: bytes[column]),
-                        isSelected: selection?.contains(offset) ?? false,
-                        isEditing: editingOffset == offset,
-                        editingHexText: editingHexText,
-                        highlightColor: highlightForColumn(column, offset: offset)
-                    )
-                } else if column < bytesPerRow {
-                    Text("  ")
-                        .font(.body.monospaced())
-                        .frame(width: HexGridLayout.cellWidth)
-                }
+            if let selectionSpans {
+                HexSelectionCanvasOverlay(
+                    spans: selectionSpans,
+                    column: .text,
+                    bytesPerRow: bytesPerRow
+                )
             }
         }
-        .frame(width: HexFormatter.hexColumnWidth(for: bytesPerRow), alignment: .leading)
-        .padding(.leading, HexGridLayout.hexColumnLeadingPadding)
-    }
-
-    private var detailedTextColumn: some View {
-        HStack(spacing: 0) {
-            ForEach(0..<bytesPerRow, id: \.self) { column in
-                let offset = rowOffset + column
-                if offset < fileSize, column < bytes.count {
-                    TextCharacterCellView(
-                        character: textCharacters[column],
-                        isSelected: selection?.contains(offset) ?? false,
-                        highlightColor: nil
-                    )
-                } else if column < bytesPerRow {
-                    Text(" ")
-                        .font(.body.monospaced())
-                        .frame(width: HexGridLayout.textCharacterWidth)
-                }
-            }
-        }
-        .lineLimit(1)
-        .frame(width: HexFormatter.textColumnWidth(for: bytesPerRow), alignment: .leading)
     }
 
     private var compactHexLine: String {
@@ -224,30 +195,5 @@ struct HexRowView: View, Equatable {
 
     private var textCharacters: [Character] {
         HexFormatter.alignedTextCharacters(for: bytes, encoding: textEncoding)
-    }
-}
-
-private struct TextCharacterCellView: View {
-    let character: Character
-    let isSelected: Bool
-    let highlightColor: HighlightColor?
-
-    var body: some View {
-        Text(String(character))
-            .font(.body.monospaced())
-            .frame(width: HexGridLayout.textCharacterWidth)
-            .padding(.vertical, 1)
-            .background(backgroundColor)
-            .cornerRadius(2)
-    }
-
-    private var backgroundColor: Color {
-        if isSelected {
-            return Color.accentColor.opacity(0.35)
-        }
-        if let highlightColor {
-            return highlightColor.color.opacity(0.3)
-        }
-        return .clear
     }
 }

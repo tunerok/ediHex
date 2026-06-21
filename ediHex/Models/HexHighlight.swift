@@ -122,3 +122,37 @@ enum HexHighlightSpans {
         return spans.isEmpty ? nil : spans
     }
 }
+
+struct HexColumnSpan: Equatable {
+    let startColumn: Int
+    let endColumn: Int
+}
+
+enum HexSelectionSpans {
+    static func spans(
+        for row: Int,
+        bytesPerRow: Int,
+        fileSize: Int,
+        selection: HexSelection?
+    ) -> [HexColumnSpan]? {
+        guard let selection else { return nil }
+
+        let rowOffset = HexFormatter.rowOffset(for: row, bytesPerRow: bytesPerRow)
+        let count = HexFormatter.byteCount(
+            forRow: row,
+            fileSize: fileSize,
+            bytesPerRow: bytesPerRow
+        )
+        guard count > 0 else { return nil }
+
+        let rowEnd = rowOffset + count - 1
+        guard selection.end >= rowOffset, selection.start <= rowEnd else { return nil }
+
+        let intersectStart = max(selection.start, rowOffset)
+        let intersectEnd = min(selection.end, rowEnd)
+        let startColumn = intersectStart - rowOffset
+        let endColumn = intersectEnd - rowOffset
+
+        return [HexColumnSpan(startColumn: startColumn, endColumn: endColumn)]
+    }
+}
