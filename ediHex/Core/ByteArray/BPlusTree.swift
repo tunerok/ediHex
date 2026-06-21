@@ -78,6 +78,14 @@ final class BPlusTree: @unchecked Sendable {
         entries.remove(at: index)
     }
 
+    func replaceEntry(at offset: UInt64, with replacements: [SliceBox]) {
+        guard let (index, _) = entryIndex(at: offset) else { return }
+        entries.remove(at: index)
+        let nonEmpty = replacements.filter { $0.length > 0 }
+        guard !nonEmpty.isEmpty else { return }
+        entries.insert(contentsOf: nonEmpty, at: index)
+    }
+
     func removeAll() {
         entries.removeAll()
     }

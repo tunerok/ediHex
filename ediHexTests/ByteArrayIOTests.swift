@@ -321,6 +321,58 @@ struct ByteArrayIOTests {
             try ByteArrayWriter.write(array, to: url, progress: progress)
         }
     }
+
+    @Test func sequentialReplaceByteOnFromFilePreservesAllBytes() throws {
+        let byteCount = 256
+        let seed = Data((0..<byteCount).map { UInt8($0) })
+        let url = try makeTempFile(seed)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let file = try FileReference.open(url: url, readOnly: false)
+        let array = BTreeByteArray.fromFile(file)
+        let editCount = 64
+
+        for index in 0..<editCount {
+            let newValue = UInt8(0xA0 + index)
+            let replaced = array.replaceByte(at: UInt64(index), with: newValue)
+            #expect(replaced == UInt8(index))
+            #expect(array.byte(at: UInt64(index)) == newValue)
+        }
+
+        let expectedPrefix = (0..<editCount).map { UInt8(0xA0 + $0) }
+        let expectedSuffix = (editCount..<byteCount).map { UInt8($0) }
+        #expect(array.bytes(in: 0..<UInt64(editCount)) == expectedPrefix)
+        #expect(array.bytes(in: UInt64(editCount)..<UInt64(byteCount)) == expectedSuffix)
+
+        try ByteArrayWriter.write(array, to: url)
+        #expect(try readFileData(url) == Data(expectedPrefix + expectedSuffix))
+    }
+
+    @Test func sequentialReplaceByteOnLargeFromFilePreservesAllBytes() throws {
+        let byteCount = 8192
+        let seed = Data((0..<byteCount).map { UInt8($0 & 0xFF) })
+        let url = try makeTempFile(seed)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let file = try FileReference.open(url: url, readOnly: false)
+        let array = BTreeByteArray.fromFile(file)
+        let editCount = 128
+
+        for index in 0..<editCount {
+            let newValue = UInt8(0xC0 + (index & 0x3F))
+            let replaced = array.replaceByte(at: UInt64(index), with: newValue)
+            #expect(replaced == UInt8(index & 0xFF))
+            #expect(array.byte(at: UInt64(index)) == newValue)
+        }
+
+        let expectedPrefix = (0..<editCount).map { UInt8(0xC0 + ($0 & 0x3F)) }
+        let expectedSuffix = (editCount..<byteCount).map { UInt8($0 & 0xFF) }
+        #expect(array.bytes(in: 0..<UInt64(editCount)) == expectedPrefix)
+        #expect(array.bytes(in: UInt64(editCount)..<UInt64(byteCount)) == expectedSuffix)
+
+        try ByteArrayWriter.write(array, to: url)
+        #expect(try readFileData(url) == Data(expectedPrefix + expectedSuffix))
+    }
 }
 
 @Suite(.serialized)
