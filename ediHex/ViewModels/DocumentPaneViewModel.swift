@@ -529,15 +529,21 @@ final class DocumentPaneViewModel: Identifiable {
             comparisonRowLoadTask?.cancel()
             comparisonRowLoadTask = nil
             comparisonRowLoadGeneration &+= 1
-
-            let bpr = max(1, setting.rawValue)
-            let reloadRow: Int
-            if let offset = comparisonCurrentDiffOffset ?? selectedOffset ?? scrollRevealOffset ?? scrollTargetOffset {
-                reloadRow = min(max(0, rowCount - 1), max(0, offset / bpr))
-            } else {
-                reloadRow = max(0, rowCount - 1)
-            }
-            Task { await loadComparisonRows(around: reloadRow, radius: 64, force: true) }
+            #if DEBUG_VIEW
+            // #region agent log
+            AgentDebugLog.write(
+                hypothesisId: "A",
+                location: "DocumentPaneViewModel.setBytesPerRow",
+                message: "comparison bpr change invalidated cache",
+                data: [
+                    "bpr": max(1, setting.rawValue),
+                    "cacheGeneration": compareRowCacheGeneration,
+                    "loadGeneration": comparisonRowLoadGeneration,
+                    "rowCount": rowCount,
+                ]
+            )
+            // #endregion
+            #endif
         }
         bumpDataRevision()
     }
@@ -736,6 +742,27 @@ final class DocumentPaneViewModel: Identifiable {
         comparisonRowLoadGeneration &+= 1
         let loadGeneration = comparisonRowLoadGeneration
 
+        #if DEBUG_VIEW
+        // #region agent log
+        AgentDebugLog.write(
+            hypothesisId: "A",
+            location: "DocumentPaneViewModel.loadComparisonRows:start",
+            message: "starting comparison row load",
+            data: [
+                "row": row,
+                "radius": radius,
+                "force": force,
+                "bpr": bytesPerRow.rawValue,
+                "rowRangeLower": rowRange.lowerBound,
+                "rowRangeUpper": rowRange.upperBound,
+                "loadGeneration": loadGeneration,
+                "cacheGeneration": compareRowCacheGeneration,
+                "hadInFlightTask": comparisonRowLoadTask != nil,
+            ]
+        )
+        // #endregion
+        #endif
+
         let cacheGeneration = compareRowCacheGeneration
         let leftArray = left.byteArray
         let rightArray = right.byteArray
@@ -770,6 +797,22 @@ final class DocumentPaneViewModel: Identifiable {
             await MainActor.run {
                 if cacheGeneration != self.compareRowCacheGeneration {
                     #if DEBUG_VIEW
+                    // #region agent log
+                    AgentDebugLog.write(
+                        hypothesisId: "A",
+                        location: "DocumentPaneViewModel.loadComparisonRows:store",
+                        message: "skipped comparison row store",
+                        data: [
+                            "skipReason": "cacheGenerationMismatch",
+                            "loadGeneration": loadGeneration,
+                            "currentLoadGeneration": self.comparisonRowLoadGeneration,
+                            "cacheGeneration": cacheGeneration,
+                            "currentCacheGeneration": self.compareRowCacheGeneration,
+                            "batchCount": batch.count,
+                            "bpr": bytesPerRowValue,
+                        ]
+                    )
+                    // #endregion
                     print(
                         "[compare-row-load] skipped store: cache generation mismatch " +
                         "captured=\(cacheGeneration) current=\(self.compareRowCacheGeneration)"
@@ -779,6 +822,22 @@ final class DocumentPaneViewModel: Identifiable {
                 }
                 if loadGeneration != self.comparisonRowLoadGeneration {
                     #if DEBUG_VIEW
+                    // #region agent log
+                    AgentDebugLog.write(
+                        hypothesisId: "A",
+                        location: "DocumentPaneViewModel.loadComparisonRows:store",
+                        message: "skipped comparison row store",
+                        data: [
+                            "skipReason": "loadGenerationMismatch",
+                            "loadGeneration": loadGeneration,
+                            "currentLoadGeneration": self.comparisonRowLoadGeneration,
+                            "cacheGeneration": cacheGeneration,
+                            "currentCacheGeneration": self.compareRowCacheGeneration,
+                            "batchCount": batch.count,
+                            "bpr": bytesPerRowValue,
+                        ]
+                    )
+                    // #endregion
                     print(
                         "[compare-row-load] skipped store: load generation mismatch " +
                         "captured=\(loadGeneration) current=\(self.comparisonRowLoadGeneration)"
@@ -794,6 +853,19 @@ final class DocumentPaneViewModel: Identifiable {
                 }
                 if batch.isEmpty {
                     #if DEBUG_VIEW
+                    // #region agent log
+                    AgentDebugLog.write(
+                        hypothesisId: "C",
+                        location: "DocumentPaneViewModel.loadComparisonRows:store",
+                        message: "skipped comparison row store",
+                        data: [
+                            "skipReason": "emptyBatch",
+                            "loadGeneration": loadGeneration,
+                            "batchCount": 0,
+                            "bpr": bytesPerRowValue,
+                        ]
+                    )
+                    // #endregion
                     print("[compare-row-load] skipped store: batch is empty")
                     #endif
                     return
@@ -801,6 +873,24 @@ final class DocumentPaneViewModel: Identifiable {
                 let storedRows = self.compareRowCache.storeBatch(batch)
                 self.comparisonRowRevision &+= 1
                 #if DEBUG_VIEW
+                // #region agent log
+                let targetRow = rowRange.upperBound - 1
+                let targetContext = batch[targetRow]
+                AgentDebugLog.write(
+                    hypothesisId: "stored",
+                    location: "DocumentPaneViewModel.loadComparisonRows:store",
+                    message: "stored comparison row batch",
+                    data: [
+                        "skipReason": "none",
+                        "loadGeneration": loadGeneration,
+                        "batchCount": batch.count,
+                        "targetRow": targetRow,
+                        "targetLeftBytes": targetContext?.leftBytes.count ?? -1,
+                        "targetRightBytes": targetContext?.rightBytes.count ?? -1,
+                        "bpr": bytesPerRowValue,
+                    ]
+                )
+                // #endregion
                 print(
                     "[compare-row-load] stored rows=\(storedRows) " +
                     "comparisonRowRevision=\(self.comparisonRowRevision)"
